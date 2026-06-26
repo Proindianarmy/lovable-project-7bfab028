@@ -1,5 +1,6 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { Camera, TrendingUp, Handshake, MapPin, CheckCircle2, Users, Clock, Map } from "lucide-react";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { Camera, TrendingUp, Handshake, MapPin, CheckCircle2, Users, Clock, Map, X } from "lucide-react";
+import { useState } from "react";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -14,6 +15,15 @@ export const Route = createFileRoute("/")({
 });
 
 function Landing() {
+  const navigate = useNavigate();
+  const [showModal, setShowModal] = useState(false);
+  const handleReportClick = () => {
+    if (typeof window !== "undefined" && localStorage.getItem("isLoggedIn") === "true") {
+      navigate({ to: "/report" });
+    } else {
+      setShowModal(true);
+    }
+  };
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b border-border">
@@ -42,12 +52,12 @@ function Landing() {
           <p className="mt-6 text-lg text-muted-foreground max-w-md">
             The modern platform that connects citizens and authorities to resolve civic challenges efficiently.
           </p>
-          <Link
-            to="/report"
+          <button
+            onClick={handleReportClick}
             className="mt-8 inline-flex items-center gap-2 px-7 py-3.5 rounded-full bg-primary text-primary-foreground font-medium hover:opacity-90"
           >
             <MapPin className="w-4 h-4" /> Report an Issue
-          </Link>
+          </button>
         </div>
         <div className="relative aspect-square max-w-md mx-auto">
           <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-info/20 to-primary/10" />
@@ -79,6 +89,44 @@ function Landing() {
       <footer className="border-t border-border py-8 text-center text-sm text-muted-foreground">
         © 2026 IssueSnap. Building better cities together.
       </footer>
+
+      {showModal && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-black/60 backdrop-blur-sm p-4"
+          onClick={() => setShowModal(false)}
+        >
+          <div
+            className="relative w-full max-w-md rounded-2xl border border-border bg-card p-7 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setShowModal(false)}
+              aria-label="Close"
+              className="absolute right-3 top-3 w-8 h-8 grid place-items-center rounded-full hover:bg-muted"
+            >
+              <X className="w-4 h-4" />
+            </button>
+            <h2 className="text-xl font-bold">Sign in to report an issue</h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              You need an account to submit reports and track progress.
+            </p>
+            <div className="mt-6 flex flex-col sm:flex-row gap-2">
+              <Link
+                to="/auth"
+                className="flex-1 text-center px-4 py-2.5 rounded-lg bg-primary text-primary-foreground font-medium"
+              >
+                Sign In
+              </Link>
+              <a
+                href="/auth?mode=signup"
+                className="flex-1 text-center px-4 py-2.5 rounded-lg border border-border font-medium"
+              >
+                Create Account
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -11,6 +11,8 @@ import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
+import { AppProviders } from "../lib/store";
+import { Toaster } from "sonner";
 
 function NotFoundComponent() {
   return (
@@ -119,11 +121,24 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
-
   return (
     <QueryClientProvider client={queryClient}>
-      {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-      <Outlet />
+      <ThemeInit />
+      <AppProviders>
+        <Outlet />
+        <Toaster richColors closeButton position="top-right" />
+      </AppProviders>
     </QueryClientProvider>
   );
+}
+
+function ThemeInit() {
+  // Avoid FOUC: apply the stored/system theme before paint on the client.
+  useEffect(() => {
+    const stored = localStorage.getItem("theme");
+    const system = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    const t = stored ?? system;
+    document.documentElement.classList.toggle("dark", t === "dark");
+  }, []);
+  return null;
 }

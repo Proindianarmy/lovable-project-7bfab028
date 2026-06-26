@@ -1,151 +1,164 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { AppShell } from "@/components/AppShell";
-import { Calendar, Filter } from "lucide-react";
 import { requireAuth } from "@/lib/auth-guard";
+import { useReports, CATEGORIES } from "@/lib/store";
+import { useMemo, useState } from "react";
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  LineChart, Line, PieChart, Pie, Cell, CartesianGrid, Legend,
+} from "recharts";
+import { Download } from "lucide-react";
 
 export const Route = createFileRoute("/analytics")({
-  head: () => ({ meta: [{ title: "Civic Analytics — IssueSnap" }] }),
+  head: () => ({ meta: [{ title: "Analytics — IssueSnap" }] }),
   beforeLoad: () => requireAuth(),
   component: Analytics,
 });
 
-const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-const zero12 = Array(12).fill(0);
-
-const categories = [
-  { label: "Infrastructure",    color: "oklch(0.45 0.12 250)" },
-  { label: "Environment",       color: "oklch(0.55 0.10 200)" },
-  { label: "Safety",            color: "oklch(0.70 0.10 180)" },
-  { label: "Public Services",   color: "oklch(0.78 0.12 150)" },
-  { label: "Other",             color: "oklch(0.80 0.15 60)"  },
-];
+const PIE_COLORS = ["#eab308", "#3b82f6", "#10b981"];
 
 function Analytics() {
+  const { reports } = useReports();
+  const [days, setDays] = useState(30);
+
+  const filtered = useMemo(
+    () => reports.filter((r) => r.createdAt >= Date.now() - days * 86400000),
+    [reports, days],
+  );
+
+  const byCategory = useMemo(
+    () => CATEGORIES.map((c) => ({ name: c, count: filtered.filter((r) => r.category === c).length })),
+    [filtered],
+  );
+
+  const byStatus = useMemo(() => {
+    const statuses = ["Pending", "In Progress", "Resolved"] as const;
+    return statuses.map((s) => ({ name: s, value: filtered.filter((r) => r.status === s).length }));
+  }, [filtered]);
+
+  const overTime = useMemo(() => {
+    const buckets: Record<string, number> = {};
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(Date.now() - i * 86400000);
+      const k = `${d.getMonth() + 1}/${d.getDate()}`;
+      buckets[k] = 0;
+    }
+    filtered.forEach((r) => {
+      const d = new Date(r.createdAt);
+      const k = `${d.getMonth() + 1}/${d.getDate()}`;
+      if (k in buckets) buckets[k] += 1;
+    });
+    return Object.entries(buckets).map(([date, count]) => ({ date, count }));
+  }, [filtered, days]);
+
+  const totalCount = filtered.length;
+  const resolvedCount = filtered.filter((r) => r.status === "Resolved").length;
+  const resolvedPct = totalCount ? Math.round((resolvedCount / totalCount) * 100) : 0;
+  const areaCounts: Record<string, number> = {};
+  filtered.forEach((r) => { areaCounts[r.location] = (areaCounts[r.location] || 0) + 1; });
+  const topArea = Object.entries(areaCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "—";
+  const avgResolutionHrs = (() => {
+    const done = filtered.filter((r) => r.status === "Resolved");
+    if (done.length === 0) return 0;
+    const avgMs = done.reduce((a, r) => a + (Date.now() - r.createdAt), 0) / done.length;
+    return Math.round(avgMs / 3600000);
+  })();
+
+  const exportCsv = () => {
+    const header = ["id", "title", "category", "status", "urgency", "location", "upvotes", "createdAt"];
+    const rows = filtered.map((r) => [
+      r.id, JSON.stringify(r.title), r.category, r.status, r.urgency,
+      JSON.stringify(r.location), r.upvotes.length, new Date(r.createdAt).toISOString(),
+    ].join(","));
+    const blob = new Blob([header.join(",") + "\n" + rows.join("\n")], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "issuesnap-reports.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
-    <AppShell>
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-        <h1 className="text-3xl font-bold">Civic Analytics &amp; City Health</h1>
-        <div className="flex gap-2">
-          <button className="flex items-center gap-2 px-4 py-2 border border-border rounded-lg bg-card text-sm">
-            <Calendar className="w-4 h-4" /> Last 30 Days
+    <AppShell title="Analytics">
+      <div className="flex items-center gap-3 mb-6 flex-wrap">
+        <span className="text-sm text-muted-foreground">Date range:</span>
+        {[7, 30, 90].map((d) => (
+          <button
+            key={d}
+            onClick={() => setDays(d)}
+            className={`px-3 py-1.5 rounded-md text-sm ${days === d ? "bg-primary text-primary-foreground" : "bg-muted"}`}
+          >
+            Last {d} days
           </button>
-          <button className="flex items-center gap-2 px-4 py-2 border border-border rounded-lg bg-card text-sm">
-            <Filter className="w-4 h-4" /> Filter
-          </button>
-        </div>
+        ))}
+        <button onClick={exportCsv} className="ml-auto flex items-center gap-2 px-3 py-1.5 rounded-md border border-border text-sm">
+          <Download className="w-4 h-4" /> Export CSV
+        </button>
+      </div>
+
+      <div className="grid sm:grid-cols-4 gap-3 mb-6">
+        <Stat label="Total Reports" value={totalCount.toString()} />
+        <Stat label="Resolved %" value={`${resolvedPct}%`} />
+        <Stat label="Avg Resolution" value={`${avgResolutionHrs}h`} />
+        <Stat label="Top Area" value={topArea} />
       </div>
 
       <div className="grid lg:grid-cols-2 gap-6">
-        <div className="bg-card border border-border rounded-2xl p-6">
-          <h2 className="font-bold mb-6">City Health Score</h2>
-          <div className="relative w-64 h-32 mx-auto">
-            <svg viewBox="0 0 200 100" className="w-full h-full">
-              <path d="M10,100 A90,90 0 0,1 190,100" fill="none" stroke="hsl(var(--muted))" strokeWidth="14" />
-              <path d="M10,100 A90,90 0 0,1 10,100" fill="none" stroke="oklch(0.65 0.17 150)" strokeWidth="14" strokeLinecap="round" />
-            </svg>
-            <div className="absolute inset-0 flex flex-col items-center justify-end pb-1">
-              <div>
-                <span className="text-5xl font-bold">0</span>
-                <span className="text-2xl text-muted-foreground">/100</span>
-              </div>
-              <p className="text-sm text-muted-foreground">No data yet.</p>
-            </div>
-          </div>
-          <div className="mt-6 grid grid-cols-3 gap-4 text-center border-t border-border pt-5">
-            <Stat label="Open Issues" value="0" />
-            <Stat label="Resolved (Last 30 Days)" value="0" />
-            <Stat label="Avg. Resolution Time" value="—" />
-          </div>
-        </div>
+        <Card title="Reports by Category">
+          <ResponsiveContainer width="100%" height={260}>
+            <BarChart data={byCategory}>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
+              <XAxis dataKey="name" stroke="var(--color-muted-foreground)" fontSize={12} />
+              <YAxis stroke="var(--color-muted-foreground)" fontSize={12} allowDecimals={false} />
+              <Tooltip contentStyle={{ background: "var(--color-popover)", border: "1px solid var(--color-border)" }} />
+              <Bar dataKey="count" fill="var(--color-primary)" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </Card>
 
-        <div className="space-y-6">
-          <div className="bg-card border border-border rounded-2xl p-6">
-            <h2 className="font-bold mb-4">Issue Reporting Trends (Last 12 Months)</h2>
-            <ZeroLineChart />
-            <div className="flex justify-center gap-4 mt-2 text-xs">
-              <Legend color="oklch(0.45 0.12 250)" label="New Reports" />
-              <Legend color="oklch(0.65 0.17 150)" label="Resolved" />
-            </div>
-          </div>
+        <Card title="Status Breakdown">
+          <ResponsiveContainer width="100%" height={260}>
+            <PieChart>
+              <Pie data={byStatus} dataKey="value" nameKey="name" outerRadius={90} label>
+                {byStatus.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+              </Pie>
+              <Legend />
+              <Tooltip contentStyle={{ background: "var(--color-popover)", border: "1px solid var(--color-border)" }} />
+            </PieChart>
+          </ResponsiveContainer>
+        </Card>
 
-          <div className="bg-card border border-border rounded-2xl p-6">
-            <h2 className="font-bold mb-4">Issue Category Distribution</h2>
-            <div className="flex items-center gap-6">
-              <svg viewBox="0 0 120 120" className="w-32 h-32 flex-shrink-0">
-                <circle cx="60" cy="60" r="46" fill="none" stroke="hsl(var(--muted))" strokeWidth="18" />
-              </svg>
-              <ul className="text-sm space-y-1.5">
-                {categories.map((c) => (
-                  <li key={c.label} className="flex items-center gap-2">
-                    <span className="w-3 h-3 rounded-sm flex-shrink-0" style={{ background: c.color }} />
-                    {c.label} (0%)
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-        </div>
+        <Card title={`Reports Submitted (last ${days} days)`} className="lg:col-span-2">
+          <ResponsiveContainer width="100%" height={260}>
+            <LineChart data={overTime}>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
+              <XAxis dataKey="date" stroke="var(--color-muted-foreground)" fontSize={11} />
+              <YAxis stroke="var(--color-muted-foreground)" fontSize={12} allowDecimals={false} />
+              <Tooltip contentStyle={{ background: "var(--color-popover)", border: "1px solid var(--color-border)" }} />
+              <Line type="monotone" dataKey="count" stroke="var(--color-primary)" strokeWidth={2} dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </Card>
       </div>
-
-      <section className="mt-6 bg-card border border-border rounded-2xl overflow-hidden">
-        <h2 className="font-bold p-5">Department Performance</h2>
-        <table className="w-full text-sm">
-          <thead className="bg-muted/50 text-left">
-            <tr>
-              {["Department","Total Issues","Resolved","Avg. Resolution Time","Performance Score"].map((h) => (
-                <th key={h} className="px-5 py-3 font-semibold">{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td colSpan={5} className="px-5 py-12 text-center text-muted-foreground">
-                No department data available yet. Data will populate as issues are assigned and resolved.
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </section>
     </AppShell>
   );
 }
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div>
+    <div className="bg-card border border-border rounded-2xl p-5">
       <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="text-xl font-bold mt-1">{value}</div>
+      <div className="text-2xl font-bold mt-1 truncate">{value}</div>
     </div>
   );
 }
 
-function Legend({ color, label }: { color: string; label: string }) {
+function Card({ title, children, className = "" }: { title: string; children: React.ReactNode; className?: string }) {
   return (
-    <span className="flex items-center gap-1.5">
-      <span className="w-2 h-2 rounded-full" style={{ background: color }} />
-      {label}
-    </span>
-  );
-}
-
-function ZeroLineChart() {
-  const W = 400, H = 160, P = 24;
-  const max = 100;
-  const flat = (data: number[]) =>
-    data.map((v, i) => `${i === 0 ? "M" : "L"} ${P + (i * (W - P * 2)) / 11} ${H - P - (v / max) * (H - P * 2)}`).join(" ");
-  return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-44">
-      {[0, 20, 40, 60, 80, 100].map((y) => (
-        <g key={y}>
-          <line x1={P} x2={W - P} y1={H - P - (y / max) * (H - P * 2)} y2={H - P - (y / max) * (H - P * 2)} stroke="oklch(0.92 0.012 250)" />
-          <text x={2} y={H - P - (y / max) * (H - P * 2) + 3} fontSize="8" fill="oklch(0.55 0.03 250)">{y}</text>
-        </g>
-      ))}
-      <path d={flat(zero12)} fill="none" stroke="oklch(0.45 0.12 250)" strokeWidth="2" strokeDasharray="4 3" opacity="0.4" />
-      <path d={flat(zero12)} fill="none" stroke="oklch(0.65 0.17 150)" strokeWidth="2" strokeDasharray="4 3" opacity="0.4" />
-      {months.map((m, i) => (
-        <text key={m} x={P + (i * (W - P * 2)) / 11} y={H - 6} fontSize="8" textAnchor="middle" fill="oklch(0.55 0.03 250)">{m}</text>
-      ))}
-    </svg>
+    <div className={`bg-card border border-border rounded-2xl p-5 ${className}`}>
+      <h3 className="font-semibold mb-3">{title}</h3>
+      {children}
+    </div>
   );
 }
