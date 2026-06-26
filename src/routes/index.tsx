@@ -25,11 +25,9 @@ function Landing() {
             IssueSnap
           </div>
           <nav className="hidden md:flex items-center gap-8 text-sm font-medium">
-            {/* Explore Issues → signup */}
-            <Link to="/signup" className="hover:text-primary">Explore Issues</Link>
+            <Link to="/feed" className="hover:text-primary">Explore Issues</Link>
             <a href="#how" className="hover:text-primary">How it Works</a>
-            {/* Sign In → login */}
-            <Link to="/login" className="px-5 py-2.5 rounded-full bg-primary text-primary-foreground hover:opacity-90">
+            <Link to="/auth" className="px-5 py-2.5 rounded-full bg-primary text-primary-foreground hover:opacity-90">
               Sign In
             </Link>
           </nav>
@@ -44,9 +42,8 @@ function Landing() {
           <p className="mt-6 text-lg text-muted-foreground max-w-md">
             The modern platform that connects citizens and authorities to resolve civic challenges efficiently.
           </p>
-          {/* Report an Issue → signup */}
           <Link
-            to="/signup"
+            to="/report"
             className="mt-8 inline-flex items-center gap-2 px-7 py-3.5 rounded-full bg-primary text-primary-foreground font-medium hover:opacity-90"
           >
             <MapPin className="w-4 h-4" /> Report an Issue

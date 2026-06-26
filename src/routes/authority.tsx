@@ -1,9 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { AppShell } from "@/components/AppShell";
 import { ClipboardCheck, PieChart, Timer, Inbox } from "lucide-react";
+import { requireAuth } from "@/lib/auth-guard";
 
 export const Route = createFileRoute("/authority")({
   head: () => ({ meta: [{ title: "Issue Dashboard — IssueSnap" }] }),
+  beforeLoad: () => requireAuth(),
   component: Authority,
 });
 

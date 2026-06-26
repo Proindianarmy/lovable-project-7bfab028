@@ -1,7 +1,30 @@
-import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
-import { LayoutDashboard, PlusCircle, ListChecks, Map, Bell, Trophy, Settings, Search, BarChart3, Shield, LogOut, User } from "lucide-react";
-import { useState, useEffect, useRef, type ReactNode } from "react";
-import { getCurrentUser, logout, type User as AuthUser } from "@/lib/auth";
+import { Link, useRouterState } from "@tanstack/react-router";
+import { LayoutDashboard, PlusCircle, ListChecks, Map, Bell, Trophy, Settings, Search, BarChart3, Shield } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+
+function UserBadge() {
+  const [name, setName] = useState("My Account");
+  const [initial, setInitial] = useState("?");
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = localStorage.getItem("userName");
+    const email = localStorage.getItem("userEmail");
+    const displayName = stored?.trim() || (email ? email.split("@")[0] : "") || "My Account";
+    setName(displayName);
+    const source = stored?.trim() || email || "?";
+    setInitial(source.charAt(0).toUpperCase());
+  }, []);
+
+  return (
+    <div className="flex items-center gap-2">
+      <div className="w-9 h-9 rounded-full bg-primary text-primary-foreground grid place-items-center text-sm font-semibold">
+        {initial}
+      </div>
+      <span className="text-sm font-medium hidden sm:block text-foreground">{name}</span>
+    </div>
+  );
+}
 
 const nav = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -17,42 +40,9 @@ const nav = [
 
 export function AppShell({ children, title }: { children: ReactNode; title?: string }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const navigate = useNavigate();
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  // Read current user on mount and whenever the component re-renders
-  useEffect(() => {
-    setUser(getCurrentUser());
-  }, [pathname]);
-
-  // Close menu on outside click
-  useEffect(() => {
-    function onClickOutside(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", onClickOutside);
-    return () => document.removeEventListener("mousedown", onClickOutside);
-  }, []);
-
-  function handleLogout() {
-    logout();
-    setUser(null);
-    setMenuOpen(false);
-    navigate({ to: "/login" });
-  }
-
-  // Initials from username
-  const initials = user
-    ? user.username.slice(0, 2).toUpperCase()
-    : "?";
 
   return (
     <div className="flex min-h-screen bg-muted/30">
-      {/* Sidebar */}
       <aside className="hidden md:flex w-64 flex-col bg-sidebar text-sidebar-foreground">
         <Link to="/" className="flex items-center gap-2 px-6 py-5 text-xl font-bold tracking-tight">
           <div className="grid place-items-center w-9 h-9 rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
@@ -80,24 +70,8 @@ export function AppShell({ children, title }: { children: ReactNode; title?: str
             );
           })}
         </nav>
-
-        {/* Sidebar user footer */}
-        {user && (
-          <div className="px-4 py-4 border-t border-sidebar-border">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-full bg-sidebar-primary text-sidebar-primary-foreground grid place-items-center text-sm font-bold flex-shrink-0">
-                {initials}
-              </div>
-              <div className="min-w-0">
-                <div className="text-sm font-medium text-sidebar-foreground truncate">{user.username}</div>
-                <div className="text-xs text-sidebar-foreground/60 truncate">{user.email}</div>
-              </div>
-            </div>
-          </div>
-        )}
       </aside>
 
-      {/* Main */}
       <div className="flex-1 flex flex-col min-w-0">
         <header className="h-16 bg-card border-b border-border flex items-center gap-4 px-6">
           <div className="relative flex-1 max-w-xl">
@@ -107,56 +81,11 @@ export function AppShell({ children, title }: { children: ReactNode; title?: str
               className="w-full h-10 pl-9 pr-4 rounded-full bg-muted text-sm outline-none focus:ring-2 focus:ring-ring"
             />
           </div>
-
-          <div className="ml-auto flex items-center gap-3">
+          <div className="ml-auto flex items-center gap-4">
             <button className="relative w-9 h-9 grid place-items-center rounded-full hover:bg-muted">
               <Bell className="w-5 h-5" />
             </button>
-
-            {user ? (
-              /* Logged-in user avatar + dropdown */
-              <div className="relative" ref={menuRef}>
-                <button
-                  onClick={() => setMenuOpen((v) => !v)}
-                  className="flex items-center gap-2 px-2 py-1 rounded-full hover:bg-muted transition-colors"
-                >
-                  <div className="w-8 h-8 rounded-full bg-primary text-primary-foreground grid place-items-center text-sm font-bold">
-                    {initials}
-                  </div>
-                  <span className="text-sm font-medium hidden sm:block">{user.username}</span>
-                </button>
-
-                {menuOpen && (
-                  <div className="absolute right-0 top-full mt-2 w-52 bg-card border border-border rounded-xl shadow-lg z-50 overflow-hidden">
-                    <div className="px-4 py-3 border-b border-border">
-                      <div className="text-sm font-semibold">{user.username}</div>
-                      <div className="text-xs text-muted-foreground truncate">{user.email}</div>
-                    </div>
-                    <Link
-                      to="/settings"
-                      onClick={() => setMenuOpen(false)}
-                      className="flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-muted transition-colors"
-                    >
-                      <User className="w-4 h-4" /> Profile & Settings
-                    </Link>
-                    <button
-                      onClick={handleLogout}
-                      className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-destructive hover:bg-destructive/10 transition-colors"
-                    >
-                      <LogOut className="w-4 h-4" /> Sign out
-                    </button>
-                  </div>
-                )}
-              </div>
-            ) : (
-              /* Not logged in */
-              <Link
-                to="/login"
-                className="px-4 py-2 rounded-full bg-primary text-primary-foreground text-sm font-medium hover:opacity-90"
-              >
-                Sign In
-              </Link>
-            )}
+            <UserBadge />
           </div>
         </header>
 

@@ -1,8 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { AppShell } from "@/components/AppShell";
+import { requireAuth } from "@/lib/auth-guard";
 
 export const Route = createFileRoute("/settings")({
   head: () => ({ meta: [{ title: "Settings — IssueSnap" }] }),
+  beforeLoad: () => requireAuth(),
   component: () => (
     <AppShell title="Settings">
       <div className="bg-card border border-border rounded-2xl p-6 max-w-xl space-y-4">

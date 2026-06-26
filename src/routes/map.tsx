@@ -1,9 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { AppShell } from "@/components/AppShell";
 import { Droplet, Slash, Shield, MapPin } from "lucide-react";
+import { requireAuth } from "@/lib/auth-guard";
 
 export const Route = createFileRoute("/map")({
   head: () => ({ meta: [{ title: "City Issue Map — IssueSnap" }] }),
+  beforeLoad: () => requireAuth(),
   component: MapPage,
 });
 

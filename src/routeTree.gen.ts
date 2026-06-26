@@ -9,25 +9,19 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as SignupRouteImport } from './routes/signup'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as ReportRouteImport } from './routes/report'
 import { Route as NotificationsRouteImport } from './routes/notifications'
 import { Route as MapRouteImport } from './routes/map'
-import { Route as LoginRouteImport } from './routes/login'
 import { Route as LeaderboardRouteImport } from './routes/leaderboard'
 import { Route as FeedRouteImport } from './routes/feed'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as AuthorityRouteImport } from './routes/authority'
+import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AnalyticsRouteImport } from './routes/analytics'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as IssueIdRouteImport } from './routes/issue.$id'
 
-const SignupRoute = SignupRouteImport.update({
-  id: '/signup',
-  path: '/signup',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -46,11 +40,6 @@ const NotificationsRoute = NotificationsRouteImport.update({
 const MapRoute = MapRouteImport.update({
   id: '/map',
   path: '/map',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const LoginRoute = LoginRouteImport.update({
-  id: '/login',
-  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LeaderboardRoute = LeaderboardRouteImport.update({
@@ -73,6 +62,11 @@ const AuthorityRoute = AuthorityRouteImport.update({
   path: '/authority',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthRoute = AuthRouteImport.update({
+  id: '/auth',
+  path: '/auth',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AnalyticsRoute = AnalyticsRouteImport.update({
   id: '/analytics',
   path: '/analytics',
@@ -92,47 +86,44 @@ const IssueIdRoute = IssueIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/analytics': typeof AnalyticsRoute
+  '/auth': typeof AuthRoute
   '/authority': typeof AuthorityRoute
   '/dashboard': typeof DashboardRoute
   '/feed': typeof FeedRoute
   '/leaderboard': typeof LeaderboardRoute
-  '/login': typeof LoginRoute
   '/map': typeof MapRoute
   '/notifications': typeof NotificationsRoute
   '/report': typeof ReportRoute
   '/settings': typeof SettingsRoute
-  '/signup': typeof SignupRoute
   '/issue/$id': typeof IssueIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/analytics': typeof AnalyticsRoute
+  '/auth': typeof AuthRoute
   '/authority': typeof AuthorityRoute
   '/dashboard': typeof DashboardRoute
   '/feed': typeof FeedRoute
   '/leaderboard': typeof LeaderboardRoute
-  '/login': typeof LoginRoute
   '/map': typeof MapRoute
   '/notifications': typeof NotificationsRoute
   '/report': typeof ReportRoute
   '/settings': typeof SettingsRoute
-  '/signup': typeof SignupRoute
   '/issue/$id': typeof IssueIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/analytics': typeof AnalyticsRoute
+  '/auth': typeof AuthRoute
   '/authority': typeof AuthorityRoute
   '/dashboard': typeof DashboardRoute
   '/feed': typeof FeedRoute
   '/leaderboard': typeof LeaderboardRoute
-  '/login': typeof LoginRoute
   '/map': typeof MapRoute
   '/notifications': typeof NotificationsRoute
   '/report': typeof ReportRoute
   '/settings': typeof SettingsRoute
-  '/signup': typeof SignupRoute
   '/issue/$id': typeof IssueIdRoute
 }
 export interface FileRouteTypes {
@@ -140,74 +131,63 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/analytics'
+    | '/auth'
     | '/authority'
     | '/dashboard'
     | '/feed'
     | '/leaderboard'
-    | '/login'
     | '/map'
     | '/notifications'
     | '/report'
     | '/settings'
-    | '/signup'
     | '/issue/$id'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/analytics'
+    | '/auth'
     | '/authority'
     | '/dashboard'
     | '/feed'
     | '/leaderboard'
-    | '/login'
     | '/map'
     | '/notifications'
     | '/report'
     | '/settings'
-    | '/signup'
     | '/issue/$id'
   id:
     | '__root__'
     | '/'
     | '/analytics'
+    | '/auth'
     | '/authority'
     | '/dashboard'
     | '/feed'
     | '/leaderboard'
-    | '/login'
     | '/map'
     | '/notifications'
     | '/report'
     | '/settings'
-    | '/signup'
     | '/issue/$id'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AnalyticsRoute: typeof AnalyticsRoute
+  AuthRoute: typeof AuthRoute
   AuthorityRoute: typeof AuthorityRoute
   DashboardRoute: typeof DashboardRoute
   FeedRoute: typeof FeedRoute
   LeaderboardRoute: typeof LeaderboardRoute
-  LoginRoute: typeof LoginRoute
   MapRoute: typeof MapRoute
   NotificationsRoute: typeof NotificationsRoute
   ReportRoute: typeof ReportRoute
   SettingsRoute: typeof SettingsRoute
-  SignupRoute: typeof SignupRoute
   IssueIdRoute: typeof IssueIdRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/signup': {
-      id: '/signup'
-      path: '/signup'
-      fullPath: '/signup'
-      preLoaderRoute: typeof SignupRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/settings': {
       id: '/settings'
       path: '/settings'
@@ -234,13 +214,6 @@ declare module '@tanstack/react-router' {
       path: '/map'
       fullPath: '/map'
       preLoaderRoute: typeof MapRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/login': {
-      id: '/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/leaderboard': {
@@ -271,6 +244,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthorityRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/auth': {
+      id: '/auth'
+      path: '/auth'
+      fullPath: '/auth'
+      preLoaderRoute: typeof AuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/analytics': {
       id: '/analytics'
       path: '/analytics'
@@ -298,16 +278,15 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AnalyticsRoute: AnalyticsRoute,
+  AuthRoute: AuthRoute,
   AuthorityRoute: AuthorityRoute,
   DashboardRoute: DashboardRoute,
   FeedRoute: FeedRoute,
   LeaderboardRoute: LeaderboardRoute,
-  LoginRoute: LoginRoute,
   MapRoute: MapRoute,
   NotificationsRoute: NotificationsRoute,
   ReportRoute: ReportRoute,
   SettingsRoute: SettingsRoute,
-  SignupRoute: SignupRoute,
   IssueIdRoute: IssueIdRoute,
 }
 export const routeTree = rootRouteImport

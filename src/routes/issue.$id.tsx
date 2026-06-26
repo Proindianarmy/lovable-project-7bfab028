@@ -1,9 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { AppShell } from "@/components/AppShell";
 import { Flag, User, Wrench, Check, MapPin, Share2, BellRing, ThumbsUp, Loader2 } from "lucide-react";
+import { requireAuth } from "@/lib/auth-guard";
 
 export const Route = createFileRoute("/issue/$id")({
   head: ({ params }) => ({ meta: [{ title: `Issue #${params.id} — IssueSnap` }] }),
+  beforeLoad: () => requireAuth(),
   loader: ({ params }) => ({ id: params.id }),
   component: IssueDetail,
   notFoundComponent: () => (

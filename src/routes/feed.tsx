@@ -1,9 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { AppShell, StatusBadge, SeverityBadge } from "@/components/AppShell";
 import { ChevronDown, LayoutGrid, List, MapPin, Inbox } from "lucide-react";
+import { requireAuth } from "@/lib/auth-guard";
 
 export const Route = createFileRoute("/feed")({
   head: () => ({ meta: [{ title: "Community Feed — IssueSnap" }] }),
+  beforeLoad: () => requireAuth(),
   component: Feed,
 });
 

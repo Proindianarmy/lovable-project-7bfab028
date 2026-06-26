@@ -1,9 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { AppShell, StatusBadge } from "@/components/AppShell";
 import { MessageSquare, MoreHorizontal, Inbox } from "lucide-react";
+import { requireAuth } from "@/lib/auth-guard";
 
 export const Route = createFileRoute("/dashboard")({
   head: () => ({ meta: [{ title: "Issue Dashboard — IssueSnap" }] }),
+  beforeLoad: () => requireAuth(),
   component: Dashboard,
 });
 

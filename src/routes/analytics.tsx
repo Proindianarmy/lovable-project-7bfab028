@@ -1,9 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { AppShell } from "@/components/AppShell";
 import { Calendar, Filter } from "lucide-react";
+import { requireAuth } from "@/lib/auth-guard";
 
 export const Route = createFileRoute("/analytics")({
   head: () => ({ meta: [{ title: "Civic Analytics — IssueSnap" }] }),
+  beforeLoad: () => requireAuth(),
   component: Analytics,
 });
 

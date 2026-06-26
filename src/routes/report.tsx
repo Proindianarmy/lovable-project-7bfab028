@@ -1,9 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { AppShell } from "@/components/AppShell";
 import { UploadCloud, MapPin } from "lucide-react";
+import { requireAuth } from "@/lib/auth-guard";
 
 export const Route = createFileRoute("/report")({
   head: () => ({ meta: [{ title: "Report a New Civic Issue — IssueSnap" }] }),
+  beforeLoad: () => requireAuth(),
   component: Report,
 });
 
