@@ -19,7 +19,6 @@ import { Route as LeaderboardRouteImport } from './routes/leaderboard'
 import { Route as FeedRouteImport } from './routes/feed'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as AuthorityRouteImport } from './routes/authority'
-import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AnalyticsRouteImport } from './routes/analytics'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as IssueIdRouteImport } from './routes/issue.$id'
@@ -74,11 +73,6 @@ const AuthorityRoute = AuthorityRouteImport.update({
   path: '/authority',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AuthRoute = AuthRouteImport.update({
-  id: '/auth',
-  path: '/auth',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const AnalyticsRoute = AnalyticsRouteImport.update({
   id: '/analytics',
   path: '/analytics',
@@ -98,7 +92,6 @@ const IssueIdRoute = IssueIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/analytics': typeof AnalyticsRoute
-  '/auth': typeof AuthRoute
   '/authority': typeof AuthorityRoute
   '/dashboard': typeof DashboardRoute
   '/feed': typeof FeedRoute
@@ -114,7 +107,6 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/analytics': typeof AnalyticsRoute
-  '/auth': typeof AuthRoute
   '/authority': typeof AuthorityRoute
   '/dashboard': typeof DashboardRoute
   '/feed': typeof FeedRoute
@@ -131,7 +123,6 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/analytics': typeof AnalyticsRoute
-  '/auth': typeof AuthRoute
   '/authority': typeof AuthorityRoute
   '/dashboard': typeof DashboardRoute
   '/feed': typeof FeedRoute
@@ -149,7 +140,6 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/analytics'
-    | '/auth'
     | '/authority'
     | '/dashboard'
     | '/feed'
@@ -165,7 +155,6 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/analytics'
-    | '/auth'
     | '/authority'
     | '/dashboard'
     | '/feed'
@@ -181,7 +170,6 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/analytics'
-    | '/auth'
     | '/authority'
     | '/dashboard'
     | '/feed'
@@ -198,7 +186,6 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AnalyticsRoute: typeof AnalyticsRoute
-  AuthRoute: typeof AuthRoute
   AuthorityRoute: typeof AuthorityRoute
   DashboardRoute: typeof DashboardRoute
   FeedRoute: typeof FeedRoute
@@ -284,13 +271,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthorityRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/auth': {
-      id: '/auth'
-      path: '/auth'
-      fullPath: '/auth'
-      preLoaderRoute: typeof AuthRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/analytics': {
       id: '/analytics'
       path: '/analytics'
@@ -318,7 +298,6 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AnalyticsRoute: AnalyticsRoute,
-  AuthRoute: AuthRoute,
   AuthorityRoute: AuthorityRoute,
   DashboardRoute: DashboardRoute,
   FeedRoute: FeedRoute,
