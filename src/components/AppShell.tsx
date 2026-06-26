@@ -1,7 +1,7 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   LayoutDashboard, PlusCircle, ListChecks, Map, Bell, Trophy, Settings,
-  BarChart3, Shield, Sun, Moon, LogOut, User, Check,
+  BarChart3, Shield, Sun, Moon, LogOut, User, Check, X,
 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useAuth, useNotifications, useTheme, timeAgo } from "@/lib/store";
@@ -10,6 +10,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
+// Nav items — analytics/authority only shown for admin role (handled in render)
 const nav = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/report", label: "Report Issue", icon: PlusCircle },
@@ -17,8 +18,8 @@ const nav = [
   { to: "/map", label: "Map", icon: Map },
   { to: "/notifications", label: "Notifications", icon: Bell },
   { to: "/leaderboard", label: "Leaderboard", icon: Trophy },
-  { to: "/analytics", label: "Analytics", icon: BarChart3 },
-  { to: "/authority", label: "Authority", icon: Shield },
+  { to: "/analytics", label: "Analytics", icon: BarChart3, adminOnly: true },
+  { to: "/authority", label: "Authority", icon: Shield, adminOnly: true },
   { to: "/settings", label: "Settings", icon: Settings },
 ];
 
@@ -65,9 +66,18 @@ function NotifBell() {
         <div className="absolute right-0 mt-2 w-80 max-h-[28rem] overflow-auto rounded-xl border border-border bg-popover text-popover-foreground shadow-lg z-50">
           <div className="flex items-center justify-between px-4 py-3 border-b border-border">
             <span className="font-semibold text-sm">Notifications</span>
-            <button onClick={markAllRead} className="text-xs text-primary hover:underline">
-              Mark all read
-            </button>
+            <div className="flex items-center gap-2">
+              <button onClick={markAllRead} className="text-xs text-primary hover:underline">
+                Mark all read
+              </button>
+              <button
+                onClick={() => setOpen(false)}
+                className="w-6 h-6 grid place-items-center rounded-full hover:bg-muted text-muted-foreground"
+                aria-label="Close"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
           {notifications.length === 0 ? (
             <div className="p-6 text-center text-sm text-muted-foreground">No notifications yet.</div>
@@ -134,15 +144,24 @@ function UserMenu() {
         </button>
         {open && (
           <div className="absolute right-0 mt-2 w-56 rounded-xl border border-border bg-popover text-popover-foreground shadow-lg z-50">
-            <div className="px-4 py-3 border-b border-border">
-              <p className="font-semibold text-sm truncate">{display}</p>
-              <p className="text-xs text-muted-foreground truncate">{user?.email ?? "—"}</p>
-              {user && (
-                <p className="text-xs mt-1">
-                  <span className="font-medium text-primary">{user.points}</span>{" "}
-                  <span className="text-muted-foreground">points · {user.role}</span>
-                </p>
-              )}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+              <div className="min-w-0">
+                <p className="font-semibold text-sm truncate">{display}</p>
+                <p className="text-xs text-muted-foreground truncate">{user?.email ?? "—"}</p>
+                {user && (
+                  <p className="text-xs mt-1">
+                    <span className="font-medium text-primary">{user.points}</span>{" "}
+                    <span className="text-muted-foreground">points · {user.role}</span>
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={() => setOpen(false)}
+                className="w-6 h-6 grid place-items-center rounded-full hover:bg-muted text-muted-foreground shrink-0 ml-2"
+                aria-label="Close"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
             </div>
             <Link
               to="/settings"
@@ -187,6 +206,11 @@ function UserMenu() {
 
 export function AppShell({ children, title }: { children: ReactNode; title?: string }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin" || user?.role === "authority";
+
+  const visibleNav = nav.filter((item) => !item.adminOnly || isAdmin);
+
   return (
     <div className="flex min-h-screen bg-muted/30">
       <aside className="hidden md:flex w-64 flex-col bg-sidebar text-sidebar-foreground">
@@ -197,7 +221,7 @@ export function AppShell({ children, title }: { children: ReactNode; title?: str
           IssueSnap
         </Link>
         <nav className="flex-1 px-3 py-2 space-y-1">
-          {nav.map((item) => {
+          {visibleNav.map((item) => {
             const active = pathname === item.to;
             const Icon = item.icon;
             return (
@@ -265,4 +289,4 @@ export function SeverityBadge({ severity }: { severity: string }) {
   );
 }
 
-export { Check }; // re-export helper for child files if needed
+export { Check };

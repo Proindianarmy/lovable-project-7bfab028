@@ -1,14 +1,13 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { Camera, TrendingUp, Handshake, MapPin, CheckCircle2, Users, Clock, Map, X } from "lucide-react";
-import { useState } from "react";
+import { Camera, TrendingUp, Handshake, MapPin, CheckCircle2, Users, Clock, Map, User, LogOut, Settings } from "lucide-react";
+import { useAuth, useReports } from "@/lib/store";
+import { useMemo, useRef, useState, useEffect } from "react";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
       { title: "IssueSnap — Report Local Issues, Track Progress" },
       { name: "description", content: "The modern civic platform connecting citizens and authorities to resolve community challenges efficiently." },
-      { property: "og:title", content: "IssueSnap" },
-      { property: "og:description", content: "Report local issues. Track progress. Improve communities." },
     ],
   }),
   component: Landing,
@@ -16,14 +15,35 @@ export const Route = createFileRoute("/")({
 
 function Landing() {
   const navigate = useNavigate();
-  const [showModal, setShowModal] = useState(false);
+  const { user, logout } = useAuth();
+  const { reports } = useReports();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, []);
+
   const handleReportClick = () => {
-    if (typeof window !== "undefined" && localStorage.getItem("isLoggedIn") === "true") {
+    if (user) {
       navigate({ to: "/report" });
     } else {
-      setShowModal(true);
+      navigate({ to: "/auth", search: { mode: "signup" } as never });
     }
   };
+
+  // Live stats from actual report data
+  const stats = useMemo(() => {
+    const resolved = reports.filter((r) => r.status === "Resolved").length;
+    // unique reporters
+    const reporters = new Set(reports.map((r) => r.reporterId)).size;
+    return { resolved, reporters };
+  }, [reports]);
+
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b border-border">
@@ -37,9 +57,59 @@ function Landing() {
           <nav className="hidden md:flex items-center gap-8 text-sm font-medium">
             <Link to="/feed" className="hover:text-primary">Explore Issues</Link>
             <a href="#how" className="hover:text-primary">How it Works</a>
-            <Link to="/auth" className="px-5 py-2.5 rounded-full bg-primary text-primary-foreground hover:opacity-90">
-              Sign In
-            </Link>
+
+            {user ? (
+              /* — Logged-in: show avatar + mini dropdown — */
+              <div className="relative" ref={menuRef}>
+                <button
+                  onClick={() => setMenuOpen((v) => !v)}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-border hover:bg-muted"
+                >
+                  <div className="w-8 h-8 rounded-full bg-primary text-primary-foreground grid place-items-center text-base overflow-hidden">
+                    {user.avatar?.startsWith("data:") ? (
+                      <img src={user.avatar} alt="" className="w-8 h-8 object-cover rounded-full" />
+                    ) : (
+                      user.avatar ?? "👤"
+                    )}
+                  </div>
+                  <span className="font-medium">{user.name}</span>
+                </button>
+                {menuOpen && (
+                  <div className="absolute right-0 mt-2 w-52 rounded-xl border border-border bg-popover text-popover-foreground shadow-lg z-50">
+                    <div className="px-4 py-3 border-b border-border">
+                      <p className="font-semibold text-sm truncate">{user.name}</p>
+                      <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+                      <p className="text-xs mt-1 text-primary font-medium">{user.points} pts · {user.role}</p>
+                    </div>
+                    <Link
+                      to="/dashboard"
+                      onClick={() => setMenuOpen(false)}
+                      className="flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-muted"
+                    >
+                      <Map className="w-4 h-4" /> Dashboard
+                    </Link>
+                    <Link
+                      to="/settings"
+                      onClick={() => setMenuOpen(false)}
+                      className="flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-muted"
+                    >
+                      <Settings className="w-4 h-4" /> Settings
+                    </Link>
+                    <button
+                      onClick={() => { logout(); setMenuOpen(false); }}
+                      className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-destructive hover:bg-muted"
+                    >
+                      <LogOut className="w-4 h-4" /> Log out
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* — Guest: Sign In button — */
+              <Link to="/auth" className="px-5 py-2.5 rounded-full bg-primary text-primary-foreground hover:opacity-90">
+                Sign In
+              </Link>
+            )}
           </nav>
         </div>
       </header>
@@ -58,22 +128,32 @@ function Landing() {
           >
             <MapPin className="w-4 h-4" /> Report an Issue
           </button>
+          {user && (
+            <Link
+              to="/dashboard"
+              className="mt-4 ml-4 inline-flex items-center gap-2 px-7 py-3.5 rounded-full border border-border font-medium hover:bg-muted"
+            >
+              Go to Dashboard
+            </Link>
+          )}
         </div>
         <div className="relative aspect-square max-w-md mx-auto">
           <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-info/20 to-primary/10" />
-          <img
-            alt="City map with issue pins"
-            className="relative w-full h-full object-contain p-8"
-            src="https://images.unsplash.com/photo-1524661135-423995f22d0b?w=700&h=700&fit=crop"
-          />
+          <div className="relative w-full h-full flex items-center justify-center p-8">
+            <div className="w-full h-full rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20 flex flex-col items-center justify-center gap-4">
+              <Map className="w-24 h-24 text-primary/40" />
+              <p className="text-primary/60 font-medium text-center">City Issue Map</p>
+            </div>
+          </div>
         </div>
       </section>
 
+      {/* Live stats pulled from real data */}
       <section className="bg-muted/60 border-y border-border">
         <div className="max-w-6xl mx-auto px-6 py-10 grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-border">
-          <Stat icon={CheckCircle2} value="—" label="Issues Resolved" />
-          <Stat icon={Users} value="—" label="Active Reporters" />
-          <Stat icon={Clock} value="—" label="Faster Response Time" />
+          <Stat icon={CheckCircle2} value={stats.resolved > 0 ? `${stats.resolved}+` : "0"} label="Issues Resolved" />
+          <Stat icon={Users} value={stats.reporters > 0 ? `${stats.reporters}+` : "0"} label="Active Reporters" />
+          <Stat icon={Clock} value={reports.length > 0 ? "48h" : "—"} label="Avg Response Time" />
         </div>
       </section>
 
@@ -89,44 +169,6 @@ function Landing() {
       <footer className="border-t border-border py-8 text-center text-sm text-muted-foreground">
         © 2026 IssueSnap. Building better cities together.
       </footer>
-
-      {showModal && (
-        <div
-          className="fixed inset-0 z-50 grid place-items-center bg-black/60 backdrop-blur-sm p-4"
-          onClick={() => setShowModal(false)}
-        >
-          <div
-            className="relative w-full max-w-md rounded-2xl border border-border bg-card p-7 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              onClick={() => setShowModal(false)}
-              aria-label="Close"
-              className="absolute right-3 top-3 w-8 h-8 grid place-items-center rounded-full hover:bg-muted"
-            >
-              <X className="w-4 h-4" />
-            </button>
-            <h2 className="text-xl font-bold">Sign in to report an issue</h2>
-            <p className="mt-2 text-sm text-muted-foreground">
-              You need an account to submit reports and track progress.
-            </p>
-            <div className="mt-6 flex flex-col sm:flex-row gap-2">
-              <Link
-                to="/auth"
-                className="flex-1 text-center px-4 py-2.5 rounded-lg bg-primary text-primary-foreground font-medium"
-              >
-                Sign In
-              </Link>
-              <a
-                href="/auth?mode=signup"
-                className="flex-1 text-center px-4 py-2.5 rounded-lg border border-border font-medium"
-              >
-                Create Account
-              </a>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { Eye, EyeOff, Map, AlertTriangle } from "lucide-react";
+import { ADMIN_EMAIL, ADMIN_PASSWORD, ADMIN_NAME } from "@/lib/store";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({ meta: [{ title: "Sign In — IssueSnap" }] }),
@@ -8,12 +9,18 @@ export const Route = createFileRoute("/auth")({
 });
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
 type Account = { name: string; email: string; password: string };
 
 function getAccounts(): Account[] {
   try {
-    return JSON.parse(localStorage.getItem("accounts") || "[]");
+    const raw = localStorage.getItem("accounts");
+    const accounts: Account[] = raw ? JSON.parse(raw) : [];
+    // Always ensure admin is present
+    if (!accounts.find((a) => a.email === ADMIN_EMAIL)) {
+      accounts.push({ name: ADMIN_NAME, email: ADMIN_EMAIL, password: ADMIN_PASSWORD });
+      localStorage.setItem("accounts", JSON.stringify(accounts));
+    }
+    return accounts;
   } catch {
     return [];
   }
@@ -21,7 +28,14 @@ function getAccounts(): Account[] {
 
 function AuthPage() {
   const navigate = useNavigate();
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
+  // Default to signup when arriving from the landing "Report an Issue" button
+  const defaultMode =
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("mode") === "signup"
+      ? "signup"
+      : "signin";
+
+  const [mode, setMode] = useState<"signin" | "signup">(defaultMode as "signin" | "signup");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -29,11 +43,7 @@ function AuthPage() {
   const [showPw, setShowPw] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [errors, setErrors] = useState<{
-    name?: string;
-    email?: string;
-    password?: string;
-    confirm?: string;
-    general?: string;
+    name?: string; email?: string; password?: string; confirm?: string; general?: string;
   }>({});
 
   const redirected =
@@ -72,10 +82,7 @@ function AuthPage() {
       const accounts = getAccounts();
       const match = accounts.find((a) => a.email === email && a.password === password);
       if (!match) {
-        setErrors({
-          general:
-            "No account found with these credentials. Please create an account first.",
-        });
+        setErrors({ general: "No account found with these credentials. Please create an account first." });
         return;
       }
       localStorage.setItem("isLoggedIn", "true");
@@ -128,18 +135,14 @@ function AuthPage() {
               <button
                 type="button"
                 onClick={() => { setMode("signin"); setErrors({}); }}
-                className={`py-2 text-sm rounded-md font-medium transition ${
-                  mode === "signin" ? "bg-background shadow-sm" : "text-muted-foreground"
-                }`}
+                className={`py-2 text-sm rounded-md font-medium transition ${mode === "signin" ? "bg-background shadow-sm" : "text-muted-foreground"}`}
               >
                 Sign In
               </button>
               <button
                 type="button"
                 onClick={() => { setMode("signup"); setErrors({}); }}
-                className={`py-2 text-sm rounded-md font-medium transition ${
-                  mode === "signup" ? "bg-background shadow-sm" : "text-muted-foreground"
-                }`}
+                className={`py-2 text-sm rounded-md font-medium transition ${mode === "signup" ? "bg-background shadow-sm" : "text-muted-foreground"}`}
               >
                 Create Account
               </button>
@@ -149,48 +152,33 @@ function AuthPage() {
               {mode === "signup" && (
                 <div>
                   <label className="block text-sm font-medium mb-1.5">Full Name</label>
-                  <input
-                    type="text"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
+                  <input type="text" value={name} onChange={(e) => setName(e.target.value)}
                     placeholder="Jane Doe"
                     className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                    aria-invalid={!!errors.name}
-                  />
+                    aria-invalid={!!errors.name} />
                   {errors.name && <p className="mt-1 text-xs text-destructive">{errors.name}</p>}
                 </div>
               )}
 
               <div>
                 <label className="block text-sm font-medium mb-1.5">Email</label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
                   placeholder="you@example.com"
                   className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                  aria-invalid={!!errors.email}
-                />
+                  aria-invalid={!!errors.email} />
                 {errors.email && <p className="mt-1 text-xs text-destructive">{errors.email}</p>}
               </div>
 
               <div>
                 <label className="block text-sm font-medium mb-1.5">Password</label>
                 <div className="relative">
-                  <input
-                    type={showPw ? "text" : "password"}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
+                  <input type={showPw ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)}
                     placeholder="••••••••"
                     className="w-full h-10 px-3 pr-10 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                    aria-invalid={!!errors.password}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPw((v) => !v)}
+                    aria-invalid={!!errors.password} />
+                  <button type="button" onClick={() => setShowPw((v) => !v)}
                     className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-muted-foreground hover:text-foreground"
-                    aria-label={showPw ? "Hide password" : "Show password"}
-                  >
+                    aria-label={showPw ? "Hide password" : "Show password"}>
                     {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
@@ -201,20 +189,13 @@ function AuthPage() {
                 <div>
                   <label className="block text-sm font-medium mb-1.5">Confirm Password</label>
                   <div className="relative">
-                    <input
-                      type={showConfirm ? "text" : "password"}
-                      value={confirm}
-                      onChange={(e) => setConfirm(e.target.value)}
+                    <input type={showConfirm ? "text" : "password"} value={confirm} onChange={(e) => setConfirm(e.target.value)}
                       placeholder="••••••••"
                       className="w-full h-10 px-3 pr-10 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                      aria-invalid={!!errors.confirm}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowConfirm((v) => !v)}
+                      aria-invalid={!!errors.confirm} />
+                    <button type="button" onClick={() => setShowConfirm((v) => !v)}
                       className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-muted-foreground hover:text-foreground"
-                      aria-label={showConfirm ? "Hide password" : "Show password"}
-                    >
+                      aria-label={showConfirm ? "Hide password" : "Show password"}>
                       {showConfirm ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
@@ -222,10 +203,8 @@ function AuthPage() {
                 </div>
               )}
 
-              <button
-                type="submit"
-                className="w-full h-10 rounded-md bg-primary text-primary-foreground font-medium hover:opacity-90"
-              >
+              <button type="submit"
+                className="w-full h-10 rounded-md bg-primary text-primary-foreground font-medium hover:opacity-90">
                 {mode === "signin" ? "Sign In" : "Create Account"}
               </button>
             </form>
@@ -233,11 +212,8 @@ function AuthPage() {
             {mode === "signin" && (
               <p className="mt-4 text-center text-sm text-muted-foreground">
                 Don't have an account?{" "}
-                <button
-                  type="button"
-                  onClick={() => { setMode("signup"); setErrors({}); }}
-                  className="text-primary font-medium hover:underline"
-                >
+                <button type="button" onClick={() => { setMode("signup"); setErrors({}); }}
+                  className="text-primary font-medium hover:underline">
                   Create one first
                 </button>
               </p>

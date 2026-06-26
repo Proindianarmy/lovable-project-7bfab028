@@ -1,13 +1,13 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { AppShell } from "@/components/AppShell";
 import { requireAuth } from "@/lib/auth-guard";
-import { useReports, CATEGORIES } from "@/lib/store";
-import { useMemo, useState } from "react";
+import { useAuth, useReports } from "@/lib/store";
+import { useEffect } from "react";
+import { toast } from "sonner";
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  LineChart, Line, PieChart, Pie, Cell, CartesianGrid, Legend,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  PieChart, Pie, Cell, Legend,
 } from "recharts";
-import { Download } from "lucide-react";
 
 export const Route = createFileRoute("/analytics")({
   head: () => ({ meta: [{ title: "Analytics — IssueSnap" }] }),
@@ -15,149 +15,129 @@ export const Route = createFileRoute("/analytics")({
   component: Analytics,
 });
 
-const PIE_COLORS = ["#eab308", "#3b82f6", "#10b981"];
+const COLORS = ["#6366f1", "#22c55e", "#f59e0b", "#ef4444", "#8b5cf6", "#14b8a6", "#f97316"];
 
 function Analytics() {
+  const { user } = useAuth();
   const { reports } = useReports();
-  const [days, setDays] = useState(30);
+  const navigate = useNavigate();
 
-  const filtered = useMemo(
-    () => reports.filter((r) => r.createdAt >= Date.now() - days * 86400000),
-    [reports, days],
-  );
-
-  const byCategory = useMemo(
-    () => CATEGORIES.map((c) => ({ name: c, count: filtered.filter((r) => r.category === c).length })),
-    [filtered],
-  );
-
-  const byStatus = useMemo(() => {
-    const statuses = ["Pending", "In Progress", "Resolved"] as const;
-    return statuses.map((s) => ({ name: s, value: filtered.filter((r) => r.status === s).length }));
-  }, [filtered]);
-
-  const overTime = useMemo(() => {
-    const buckets: Record<string, number> = {};
-    for (let i = days - 1; i >= 0; i--) {
-      const d = new Date(Date.now() - i * 86400000);
-      const k = `${d.getMonth() + 1}/${d.getDate()}`;
-      buckets[k] = 0;
+  // Redirect non-admins away
+  useEffect(() => {
+    if (user && user.role !== "admin" && user.role !== "authority") {
+      toast.error("Access denied. Admins only.");
+      navigate({ to: "/feed" });
     }
-    filtered.forEach((r) => {
-      const d = new Date(r.createdAt);
-      const k = `${d.getMonth() + 1}/${d.getDate()}`;
-      if (k in buckets) buckets[k] += 1;
-    });
-    return Object.entries(buckets).map(([date, count]) => ({ date, count }));
-  }, [filtered, days]);
+  }, [user, navigate]);
 
-  const totalCount = filtered.length;
-  const resolvedCount = filtered.filter((r) => r.status === "Resolved").length;
-  const resolvedPct = totalCount ? Math.round((resolvedCount / totalCount) * 100) : 0;
-  const areaCounts: Record<string, number> = {};
-  filtered.forEach((r) => { areaCounts[r.location] = (areaCounts[r.location] || 0) + 1; });
-  const topArea = Object.entries(areaCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "—";
-  const avgResolutionHrs = (() => {
-    const done = filtered.filter((r) => r.status === "Resolved");
-    if (done.length === 0) return 0;
-    const avgMs = done.reduce((a, r) => a + (Date.now() - r.createdAt), 0) / done.length;
-    return Math.round(avgMs / 3600000);
-  })();
+  if (!user || (user.role !== "admin" && user.role !== "authority")) return null;
 
-  const exportCsv = () => {
-    const header = ["id", "title", "category", "status", "urgency", "location", "upvotes", "createdAt"];
-    const rows = filtered.map((r) => [
-      r.id, JSON.stringify(r.title), r.category, r.status, r.urgency,
-      JSON.stringify(r.location), r.upvotes.length, new Date(r.createdAt).toISOString(),
-    ].join(","));
-    const blob = new Blob([header.join(",") + "\n" + rows.join("\n")], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "issuesnap-reports.csv";
-    a.click();
-    URL.revokeObjectURL(url);
-  };
+  // Category breakdown
+  const catMap = new Map<string, number>();
+  reports.forEach((r) => catMap.set(r.category, (catMap.get(r.category) ?? 0) + 1));
+  const catData = Array.from(catMap.entries()).map(([name, value]) => ({ name, value }));
+
+  // Status breakdown
+  const statusMap = new Map<string, number>();
+  reports.forEach((r) => statusMap.set(r.status, (statusMap.get(r.status) ?? 0) + 1));
+  const statusData = Array.from(statusMap.entries()).map(([name, value]) => ({ name, value }));
+
+  // Reports per day (last 7)
+  const days: { date: string; count: number }[] = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(Date.now() - i * 86400000);
+    const label = d.toLocaleDateString("en-IN", { weekday: "short" });
+    const count = reports.filter((r) => {
+      const rd = new Date(r.createdAt);
+      return rd.toDateString() === d.toDateString();
+    }).length;
+    days.push({ date: label, count });
+  }
+
+  const total = reports.length;
+  const resolved = reports.filter((r) => r.status === "Resolved").length;
+  const pending = reports.filter((r) => r.status === "Pending").length;
+  const inProgress = reports.filter((r) => r.status === "In Progress").length;
 
   return (
-    <AppShell title="Analytics">
-      <div className="flex items-center gap-3 mb-6 flex-wrap">
-        <span className="text-sm text-muted-foreground">Date range:</span>
-        {[7, 30, 90].map((d) => (
-          <button
-            key={d}
-            onClick={() => setDays(d)}
-            className={`px-3 py-1.5 rounded-md text-sm ${days === d ? "bg-primary text-primary-foreground" : "bg-muted"}`}
-          >
-            Last {d} days
-          </button>
-        ))}
-        <button onClick={exportCsv} className="ml-auto flex items-center gap-2 px-3 py-1.5 rounded-md border border-border text-sm">
-          <Download className="w-4 h-4" /> Export CSV
-        </button>
-      </div>
-
-      <div className="grid sm:grid-cols-4 gap-3 mb-6">
-        <Stat label="Total Reports" value={totalCount.toString()} />
-        <Stat label="Resolved %" value={`${resolvedPct}%`} />
-        <Stat label="Avg Resolution" value={`${avgResolutionHrs}h`} />
-        <Stat label="Top Area" value={topArea} />
+    <AppShell title="Analytics Dashboard">
+      <div className="grid sm:grid-cols-4 gap-4 mb-6">
+        <Stat label="Total Reports" value={total} color="text-primary" />
+        <Stat label="Resolved" value={resolved} color="text-green-600 dark:text-green-400" />
+        <Stat label="In Progress" value={inProgress} color="text-blue-600 dark:text-blue-400" />
+        <Stat label="Pending" value={pending} color="text-yellow-600 dark:text-yellow-400" />
       </div>
 
       <div className="grid lg:grid-cols-2 gap-6">
-        <Card title="Reports by Category">
-          <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={byCategory}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-              <XAxis dataKey="name" stroke="var(--color-muted-foreground)" fontSize={12} />
-              <YAxis stroke="var(--color-muted-foreground)" fontSize={12} allowDecimals={false} />
-              <Tooltip contentStyle={{ background: "var(--color-popover)", border: "1px solid var(--color-border)" }} />
-              <Bar dataKey="count" fill="var(--color-primary)" radius={[4, 4, 0, 0]} />
+        <ChartCard title="Reports This Week">
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={days}>
+              <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+              <XAxis dataKey="date" className="text-xs" />
+              <YAxis allowDecimals={false} className="text-xs" />
+              <Tooltip />
+              <Bar dataKey="count" fill="#6366f1" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
-        </Card>
+        </ChartCard>
 
-        <Card title="Status Breakdown">
-          <ResponsiveContainer width="100%" height={260}>
+        <ChartCard title="By Category">
+          <ResponsiveContainer width="100%" height={220}>
             <PieChart>
-              <Pie data={byStatus} dataKey="value" nameKey="name" outerRadius={90} label>
-                {byStatus.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+              <Pie data={catData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label>
+                {catData.map((_, i) => (
+                  <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                ))}
               </Pie>
               <Legend />
-              <Tooltip contentStyle={{ background: "var(--color-popover)", border: "1px solid var(--color-border)" }} />
+              <Tooltip />
             </PieChart>
           </ResponsiveContainer>
-        </Card>
+        </ChartCard>
 
-        <Card title={`Reports Submitted (last ${days} days)`} className="lg:col-span-2">
-          <ResponsiveContainer width="100%" height={260}>
-            <LineChart data={overTime}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-              <XAxis dataKey="date" stroke="var(--color-muted-foreground)" fontSize={11} />
-              <YAxis stroke="var(--color-muted-foreground)" fontSize={12} allowDecimals={false} />
-              <Tooltip contentStyle={{ background: "var(--color-popover)", border: "1px solid var(--color-border)" }} />
-              <Line type="monotone" dataKey="count" stroke="var(--color-primary)" strokeWidth={2} dot={false} />
-            </LineChart>
+        <ChartCard title="By Status">
+          <ResponsiveContainer width="100%" height={220}>
+            <PieChart>
+              <Pie data={statusData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label>
+                {statusData.map((_, i) => (
+                  <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                ))}
+              </Pie>
+              <Legend />
+              <Tooltip />
+            </PieChart>
           </ResponsiveContainer>
-        </Card>
+        </ChartCard>
+
+        <ChartCard title="Category Volume">
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={catData} layout="vertical">
+              <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+              <XAxis type="number" allowDecimals={false} className="text-xs" />
+              <YAxis type="category" dataKey="name" width={80} className="text-xs" />
+              <Tooltip />
+              <Bar dataKey="value" fill="#22c55e" radius={[0, 4, 4, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </ChartCard>
       </div>
     </AppShell>
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value, color }: { label: string; value: number; color: string }) {
   return (
     <div className="bg-card border border-border rounded-2xl p-5">
       <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="text-2xl font-bold mt-1 truncate">{value}</div>
+      <div className={`text-3xl font-bold mt-1 ${color}`}>{value}</div>
     </div>
   );
 }
 
-function Card({ title, children, className = "" }: { title: string; children: React.ReactNode; className?: string }) {
+function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className={`bg-card border border-border rounded-2xl p-5 ${className}`}>
-      <h3 className="font-semibold mb-3">{title}</h3>
+    <div className="bg-card border border-border rounded-2xl p-5">
+      <h3 className="font-semibold mb-4">{title}</h3>
       {children}
     </div>
   );

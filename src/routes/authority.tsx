@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { AppShell, StatusBadge } from "@/components/AppShell";
 import { requireAuth } from "@/lib/auth-guard";
 import { useAuth, useReports, useNotifications, type IssueStatus, timeAgo } from "@/lib/store";
-import { Shield, ShieldCheck, BarChart3, Cog, Inbox, CheckCircle2, Eye, EyeOff } from "lucide-react";
+import { Shield, ShieldCheck, BarChart3, Cog, Inbox, CheckCircle2, Eye, EyeOff, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -14,7 +14,7 @@ export const Route = createFileRoute("/authority")({
   component: Authority,
 });
 
-type Tab = "overview" | "pending" | "resolved" | "analytics" | "settings";
+type Tab = "overview" | "pending" | "resolved" | "settings";
 
 function Authority() {
   const { user, setRole, addPoints } = useAuth();
@@ -28,10 +28,12 @@ function Authority() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (typeof window !== "undefined" && sessionStorage.getItem("authorityUnlocked") === "1") {
-      setUnlocked(true);
+    if (typeof window !== "undefined") {
+      // Admin always gets access automatically
+      if (user?.role === "admin") { setUnlocked(true); return; }
+      if (sessionStorage.getItem("authorityUnlocked") === "1") setUnlocked(true);
     }
-  }, []);
+  }, [user]);
 
   if (!user) return null;
 
@@ -40,7 +42,7 @@ function Authority() {
       sessionStorage.setItem("authorityUnlocked", "1");
       setUnlocked(true);
       setError("");
-      if (user.role !== "authority") setRole("authority");
+      if (user.role !== "authority" && user.role !== "admin") setRole("authority");
       toast.success("Authority access granted!");
     } else {
       setError("Incorrect password. Please try again.");
@@ -112,7 +114,6 @@ function Authority() {
     { id: "overview", label: "Overview", icon: BarChart3 },
     { id: "pending", label: `Pending (${pending.length})`, icon: Inbox },
     { id: "resolved", label: `Resolved (${resolved.length})`, icon: CheckCircle2 },
-    { id: "analytics", label: "Analytics", icon: BarChart3 },
     { id: "settings", label: "Settings", icon: Cog },
   ];
 
@@ -163,26 +164,19 @@ function Authority() {
         )} />
       )}
 
-      {tab === "analytics" && (
-        <div className="bg-card border border-border rounded-2xl p-6">
-          <p className="text-sm text-muted-foreground">
-            See the full charts dashboard on the{" "}
-            <a className="text-primary hover:underline" href="/analytics">Analytics page</a>.
-          </p>
-        </div>
-      )}
-
       {tab === "settings" && (
         <div className="bg-card border border-border rounded-2xl p-6 space-y-4 max-w-md">
           <div>
             <p className="font-semibold mb-1">Authority role</p>
             <p className="text-sm text-muted-foreground mb-3">You currently have authority privileges.</p>
-            <button
-              onClick={() => { setRole("user"); toast.success("Reverted to regular user"); }}
-              className="px-4 py-2 rounded-md border border-border text-sm"
-            >
-              Revoke authority role
-            </button>
+            {user.role !== "admin" && (
+              <button
+                onClick={() => { setRole("user"); toast.success("Reverted to regular user"); }}
+                className="px-4 py-2 rounded-md border border-border text-sm"
+              >
+                Revoke authority role
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -228,5 +222,4 @@ function ReportList({
     </div>
   );
 }
-
-export { ShieldCheck };
+export { ShieldCheck, X };

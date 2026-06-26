@@ -1,4 +1,3 @@
-/* eslint-disable react-refresh/only-export-components */
 import {
   createContext,
   useCallback,
@@ -41,16 +40,23 @@ export interface Report {
   description: string;
   category: Category;
   location: string;
+  city?: string;
+  state?: string;
+  pincode?: string;
+  lat?: number;
+  lng?: number;
   urgency: Urgency;
   status: IssueStatus;
-  image?: string;
+  photos?: string[]; // up to 5 gallery photos
+  image?: string;   // kept for backward compat
   aiTags?: string[];
   aiConfidence?: number;
   reporterId: string;
   reporterName: string;
   reporterAvatar?: string;
   createdAt: number;
-  upvotes: string[]; // user ids
+  upvotes: string[];    // user ids who upvoted
+  downvotes: string[];  // user ids who downvoted
   comments: { id: string; userId: string; userName: string; text: string; at: number }[];
   spamFlags: string[];
   censored: boolean;
@@ -64,7 +70,7 @@ export interface UserProfile {
   bio: string;
   city: string;
   points: number;
-  role: "user" | "authority";
+  role: "user" | "authority" | "admin";
   notifyEmail: boolean;
   notifyPush: boolean;
   lastDailyBonus?: number;
@@ -79,6 +85,13 @@ export interface Notification {
   read: boolean;
   reportId?: string;
 }
+
+/* =========================================================================
+ * ADMIN ACCOUNT — permanently baked in
+ * ========================================================================= */
+export const ADMIN_EMAIL = "admin@issuesnap.com";
+export const ADMIN_PASSWORD = "Admin@1234";
+export const ADMIN_NAME = "Admin";
 
 /* =========================================================================
  * Utilities — profanity, spam, AI sim, rating, levels
@@ -151,27 +164,41 @@ const AI_CATEGORY_TAGS: Record<Category, string[]> = {
   Other: ["Unknown object", "Misc issue"],
 };
 
-export function simulateAIDetection(): Promise<{
-  tags: string[];
-  confidence: number;
-  category: Category;
-  isAIGenerated: boolean;
-  aiGeneratedConfidence: number;
+/**
+ * Simulates AI detection. AI-generated/drawn images have a HIGH confidence flag
+ * and the caller is expected to REJECT / delete the image if isAIGenerated=true.
+ */
+export async function simulateAIDetection(dataUrl?: string): Promise<{
+  tags: string[]; confidence: number; category: Category;
+  isAIGenerated: boolean; aiGeneratedConfidence: number;
 }> {
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      const cats = CATEGORIES.filter((c) => c !== "Other");
-      const category = cats[Math.floor(Math.random() * cats.length)];
-      const pool = AI_CATEGORY_TAGS[category];
-      const tags = [...pool].sort(() => 0.5 - Math.random()).slice(0, 3);
-      const confidence = 75 + Math.floor(Math.random() * 22);
-      const isAIGenerated = Math.random() < 0.2;
-      const aiGeneratedConfidence = isAIGenerated
-        ? 70 + Math.floor(Math.random() * 28)
-        : 5 + Math.floor(Math.random() * 25);
-      resolve({ tags, confidence, category, isAIGenerated, aiGeneratedConfidence });
-    }, 2000);
-  });
+  const cats = CATEGORIES.filter(c => c !== "Other");
+  const category = cats[Math.floor(Math.random() * cats.length)];
+  const tags = AI_CATEGORY_TAGS[category].slice(0, 3);
+  const confidence = 85;
+
+  if (!dataUrl) return { tags, confidence, category, isAIGenerated: false, aiGeneratedConfidence: 5 };
+
+  try {
+    // Convert dataUrl to a Blob
+    const res = await fetch(dataUrl);
+    const blob = await res.blob();
+    const form = new FormData();
+    form.append("media", blob, "photo.jpg");
+    form.append("models", "type");
+    form.append("api_user", "736370365");   // ← paste your user number
+    form.append("api_secret", "hEnrchrj9wzuKehVjGEQZMgdkw8PgXAc"); // ← paste your secret
+
+    const apiRes = await fetch("https://api.sightengine.com/1.0/check.json", {
+      method: "POST", body: form,
+    });
+    const data = await apiRes.json();
+    const aiScore = data?.type?.ai_generated ?? 0;
+    const isAIGenerated = aiScore > 0.65;
+    return { tags, confidence: 90, category, isAIGenerated, aiGeneratedConfidence: Math.round(aiScore * 100) };
+  } catch {
+    return { tags, confidence, category, isAIGenerated: false, aiGeneratedConfidence: 5 };
+  }
 }
 
 const URGENCY_PTS: Record<Urgency, number> = {
@@ -288,7 +315,7 @@ interface AuthCtx {
   hydrated: boolean;
   updateProfile: (patch: Partial<UserProfile>) => void;
   addPoints: (n: number, reason: string) => void;
-  setRole: (role: "user" | "authority") => void;
+  setRole: (role: "user" | "authority" | "admin") => void;
   logout: () => void;
 }
 const AuthContext = createContext<AuthCtx | null>(null);
@@ -300,15 +327,54 @@ function saveProfiles(p: Record<string, UserProfile>) {
   save("profiles", p);
 }
 
+/** Ensure the hardcoded admin profile always exists */
+function ensureAdminProfile(profiles: Record<string, UserProfile>) {
+  if (!profiles[ADMIN_EMAIL]) {
+    profiles[ADMIN_EMAIL] = {
+      id: ADMIN_EMAIL,
+      email: ADMIN_EMAIL,
+      name: ADMIN_NAME,
+      avatar: "🛡️",
+      bio: "System administrator",
+      city: "",
+      points: 9999,
+      role: "admin",
+      notifyEmail: true,
+      notifyPush: true,
+    };
+  } else {
+    // Always enforce admin role for this account
+    profiles[ADMIN_EMAIL].role = "admin";
+  }
+  return profiles;
+}
+
+/** Ensure admin account exists in the accounts[] localStorage list */
+function ensureAdminAccount() {
+  try {
+    const raw = localStorage.getItem("accounts");
+    const accounts: { name: string; email: string; password: string }[] =
+      raw ? JSON.parse(raw) : [];
+    if (!accounts.find((a) => a.email === ADMIN_EMAIL)) {
+      accounts.push({ name: ADMIN_NAME, email: ADMIN_EMAIL, password: ADMIN_PASSWORD });
+      localStorage.setItem("accounts", JSON.stringify(accounts));
+    }
+  } catch { /* ignore */ }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
+    ensureAdminAccount();
+    const profiles = getProfiles();
+    ensureAdminProfile(profiles);
+    saveProfiles(profiles);
+
     const logged = localStorage.getItem("isLoggedIn") === "true";
     const email = localStorage.getItem("userEmail");
     if (logged && email) {
-      const profiles = getProfiles();
       let p = profiles[email];
       if (!p) {
         const name = localStorage.getItem("userName") || email.split("@")[0];
@@ -320,13 +386,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           bio: "",
           city: "",
           points: 0,
-          role: "user",
+          role: email === ADMIN_EMAIL ? "admin" : "user",
           notifyEmail: true,
           notifyPush: true,
         };
         profiles[email] = p;
         saveProfiles(profiles);
       }
+      if (email === ADMIN_EMAIL) p.role = "admin";
+
       // Daily login bonus
       const today = new Date().toDateString();
       const last = p.lastDailyBonus ? new Date(p.lastDailyBonus).toDateString() : null;
@@ -373,7 +441,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const profiles = getProfiles();
         profiles[next.email] = next;
         saveProfiles(profiles);
-        toast.success(`+${n} points — ${reason}`);
+        toast.success(`${n > 0 ? "+" : ""}${n} points — ${reason}`);
         return next;
       });
     },
@@ -381,7 +449,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const setRole = useCallback(
-    (role: "user" | "authority") => {
+    (role: "user" | "authority" | "admin") => {
       setUser((prev) => {
         if (!prev) return prev;
         const next = { ...prev, role };
@@ -417,8 +485,9 @@ export const useAuth = () => {
 
 interface ReportsCtx {
   reports: Report[];
-  addReport: (r: Omit<Report, "id" | "createdAt" | "upvotes" | "comments" | "spamFlags" | "status">) => Report;
-  upvote: (id: string, userId: string) => void;
+  addReport: (r: Omit<Report, "id" | "createdAt" | "upvotes" | "downvotes" | "comments" | "spamFlags" | "status">) => Report;
+  upvote: (id: string, userId: string) => { wasUpvoted: boolean; wasDownvoted: boolean };
+  downvote: (id: string, userId: string) => { wasUpvoted: boolean; wasDownvoted: boolean };
   flagSpam: (id: string, userId: string) => void;
   setStatus: (id: string, status: IssueStatus) => void;
   addComment: (id: string, userId: string, userName: string, text: string) => void;
@@ -430,7 +499,13 @@ export function ReportsProvider({ children }: { children: ReactNode }) {
   const [reports, setReports] = useState<Report[]>([]);
 
   useEffect(() => {
-    setReports(load<Report[]>("reports", []));
+    // Migrate old reports that lack downvotes field
+    const raw = load<Report[]>("reports", []);
+    const migrated = raw.map((r) => ({
+      ...r,
+      downvotes: r.downvotes ?? [],
+    }));
+    setReports(migrated);
   }, []);
 
   const persist = (next: Report[]) => {
@@ -444,6 +519,7 @@ export function ReportsProvider({ children }: { children: ReactNode }) {
       id: `r_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
       createdAt: Date.now(),
       upvotes: [],
+      downvotes: [],
       comments: [],
       spamFlags: [],
       status: "Pending",
@@ -452,16 +528,62 @@ export function ReportsProvider({ children }: { children: ReactNode }) {
     return next;
   };
 
+  /**
+   * Upvote a report. Returns previous state so caller can award/revoke XP.
+   * - If already upvoted → remove upvote (toggle off)
+   * - If downvoted → remove downvote and add upvote
+   * - Otherwise → add upvote
+   */
   const upvote: ReportsCtx["upvote"] = (id, userId) => {
     const list = load<Report[]>("reports", []);
+    let wasUpvoted = false;
+    let wasDownvoted = false;
     const next = list.map((r) => {
       if (r.id !== id) return r;
-      if (r.upvotes.includes(userId)) {
-        return { ...r, upvotes: r.upvotes.filter((u) => u !== userId) };
+      const dv = r.downvotes ?? [];
+      wasUpvoted = r.upvotes.includes(userId);
+      wasDownvoted = dv.includes(userId);
+      if (wasUpvoted) {
+        // toggle off
+        return { ...r, upvotes: r.upvotes.filter((u) => u !== userId), downvotes: dv };
       }
-      return { ...r, upvotes: [...r.upvotes, userId] };
+      return {
+        ...r,
+        upvotes: [...r.upvotes, userId],
+        downvotes: dv.filter((u) => u !== userId),
+      };
     });
     persist(next);
+    return { wasUpvoted, wasDownvoted };
+  };
+
+  /**
+   * Downvote a report.
+   * - If already downvoted → toggle off
+   * - If upvoted → remove upvote and add downvote
+   * - Otherwise → add downvote
+   */
+  const downvote: ReportsCtx["downvote"] = (id, userId) => {
+    const list = load<Report[]>("reports", []);
+    let wasUpvoted = false;
+    let wasDownvoted = false;
+    const next = list.map((r) => {
+      if (r.id !== id) return r;
+      const dv = r.downvotes ?? [];
+      wasUpvoted = r.upvotes.includes(userId);
+      wasDownvoted = dv.includes(userId);
+      if (wasDownvoted) {
+        // toggle off
+        return { ...r, upvotes: r.upvotes, downvotes: dv.filter((u) => u !== userId) };
+      }
+      return {
+        ...r,
+        upvotes: r.upvotes.filter((u) => u !== userId),
+        downvotes: [...dv, userId],
+      };
+    });
+    persist(next);
+    return { wasUpvoted, wasDownvoted };
   };
 
   const flagSpam: ReportsCtx["flagSpam"] = (id, userId) => {
@@ -479,7 +601,9 @@ export function ReportsProvider({ children }: { children: ReactNode }) {
     persist(list.map((r) => (r.id === id ? { ...r, status } : r)));
   };
 
-  const addComment: ReportsCtx["addComment"] = (id, userId, userName, text) => {
+  const addComment: ReportsCtx["addComment"] = (id, userId, userName, rawText) => {
+    // Auto-censor curse words before saving
+    const { text } = censorText(rawText);
     const list = load<Report[]>("reports", []);
     const next = list.map((r) =>
       r.id === id
@@ -508,7 +632,7 @@ export function ReportsProvider({ children }: { children: ReactNode }) {
   };
 
   const value = useMemo(
-    () => ({ reports, addReport, upvote, flagSpam, setStatus, addComment, findSimilar }),
+    () => ({ reports, addReport, upvote, downvote, flagSpam, setStatus, addComment, findSimilar }),
     [reports],
   );
 
@@ -630,4 +754,69 @@ export function timeAgo(ts: number) {
   if (s < 3600) return `${Math.floor(s / 60)}m ago`;
   if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
   return `${Math.floor(s / 86400)}d ago`;
+}
+
+/* =========================================================================
+ * India geographic data
+ * ========================================================================= */
+
+export const INDIA_STATES = [
+  "Andhra Pradesh","Arunachal Pradesh","Assam","Bihar","Chhattisgarh",
+  "Goa","Gujarat","Haryana","Himachal Pradesh","Jharkhand","Karnataka",
+  "Kerala","Madhya Pradesh","Maharashtra","Manipur","Meghalaya","Mizoram",
+  "Nagaland","Odisha","Punjab","Rajasthan","Sikkim","Tamil Nadu","Telangana",
+  "Tripura","Uttar Pradesh","Uttarakhand","West Bengal",
+  "Andaman and Nicobar Islands","Chandigarh","Dadra and Nagar Haveli and Daman and Diu",
+  "Delhi","Jammu and Kashmir","Ladakh","Lakshadweep","Puducherry",
+];
+
+export const INDIA_CITIES_BY_STATE: Record<string, string[]> = {
+  "Andhra Pradesh": ["Visakhapatnam","Vijayawada","Guntur","Nellore","Kurnool","Rajahmundry","Tirupati","Kakinada","Kadapa","Anantapur"],
+  "Arunachal Pradesh": ["Itanagar","Naharlagun","Pasighat","Ziro","Bomdila"],
+  "Assam": ["Guwahati","Silchar","Dibrugarh","Jorhat","Nagaon","Tinsukia","Tezpur"],
+  "Bihar": ["Patna","Gaya","Muzaffarpur","Bhagalpur","Darbhanga","Purnia","Arrah","Begusarai"],
+  "Chhattisgarh": ["Raipur","Bhilai","Bilaspur","Durg","Korba","Rajnandgaon"],
+  "Goa": ["Panaji","Margao","Vasco da Gama","Mapusa","Ponda"],
+  "Gujarat": ["Ahmedabad","Surat","Vadodara","Rajkot","Bhavnagar","Jamnagar","Gandhinagar","Anand","Nadiad"],
+  "Haryana": ["Faridabad","Gurgaon","Panipat","Ambala","Yamunanagar","Rohtak","Hisar","Karnal","Sonipat"],
+  "Himachal Pradesh": ["Shimla","Mandi","Solan","Dharamshala","Baddi","Palampur"],
+  "Jharkhand": ["Ranchi","Jamshedpur","Dhanbad","Bokaro","Deoghar","Hazaribagh","Giridih"],
+  "Karnataka": ["Bengaluru","Hubli","Mysuru","Mangaluru","Belagavi","Davangere","Ballari","Vijayapura","Shivamogga"],
+  "Kerala": ["Thiruvananthapuram","Kochi","Kozhikode","Thrissur","Kollam","Palakkad","Alappuzha","Malappuram"],
+  "Madhya Pradesh": ["Bhopal","Indore","Jabalpur","Gwalior","Ujjain","Sagar","Dewas","Satna","Ratlam"],
+  "Maharashtra": ["Mumbai","Pune","Nagpur","Thane","Nashik","Aurangabad","Solapur","Navi Mumbai","Kolhapur","Amravati"],
+  "Manipur": ["Imphal","Thoubal","Bishnupur","Churachandpur"],
+  "Meghalaya": ["Shillong","Tura","Jowai","Nongstoin"],
+  "Mizoram": ["Aizawl","Lunglei","Saiha"],
+  "Nagaland": ["Kohima","Dimapur","Mokokchung"],
+  "Odisha": ["Bhubaneswar","Cuttack","Rourkela","Brahmapur","Sambalpur","Puri","Balasore"],
+  "Punjab": ["Ludhiana","Amritsar","Jalandhar","Patiala","Bathinda","Mohali","Hoshiarpur"],
+  "Rajasthan": ["Jaipur","Jodhpur","Kota","Bikaner","Ajmer","Udaipur","Bhilwara","Alwar","Sikar"],
+  "Sikkim": ["Gangtok","Namchi","Mangan"],
+  "Tamil Nadu": ["Chennai","Coimbatore","Madurai","Tiruchirappalli","Salem","Tirunelveli","Tiruppur","Vellore","Erode"],
+  "Telangana": ["Hyderabad","Warangal","Nizamabad","Khammam","Karimnagar","Ramagundam","Mahbubnagar"],
+  "Tripura": ["Agartala","Dharmanagar","Udaipur","Kailasahar"],
+  "Uttar Pradesh": ["Lucknow","Kanpur","Varanasi","Agra","Meerut","Allahabad","Ghaziabad","Noida","Bareilly","Aligarh","Moradabad","Saharanpur","Gorakhpur","Faizabad"],
+  "Uttarakhand": ["Dehradun","Haridwar","Roorkee","Haldwani","Rudrapur","Kashipur","Rishikesh"],
+  "West Bengal": ["Kolkata","Asansol","Siliguri","Durgapur","Bardhaman","Malda","Baharampur","Habra"],
+  "Andaman and Nicobar Islands": ["Port Blair"],
+  "Chandigarh": ["Chandigarh"],
+  "Dadra and Nagar Haveli and Daman and Diu": ["Daman","Diu","Silvassa"],
+  "Delhi": ["New Delhi","Delhi"],
+  "Jammu and Kashmir": ["Srinagar","Jammu","Anantnag","Sopore","Kathua"],
+  "Ladakh": ["Leh","Kargil"],
+  "Lakshadweep": ["Kavaratti"],
+  "Puducherry": ["Puducherry","Karaikal","Mahe","Yanam"],
+};
+
+/** Basic Indian pincode validation: 6 digits, first digit 1-9 */
+export async function validatePincode(pin: string): Promise<boolean> {
+  if (!/^\d{6}$/.test(pin)) return false;
+  try {
+    const res = await fetch(`https://api.postalpincode.in/pincode/${pin}`);
+    const json = await res.json();
+    return json?.[0]?.Status === "Success";
+  } catch {
+    return false; // network error = don't block the user
+  }
 }
