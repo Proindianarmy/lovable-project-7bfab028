@@ -2,7 +2,17 @@ import { createFileRoute } from "@tanstack/react-router";
 import { AppShell, StatusBadge } from "@/components/AppShell";
 import { requireAuth } from "@/lib/auth-guard";
 import { useAuth, useReports, useNotifications, type IssueStatus, timeAgo } from "@/lib/store";
-import { Shield, ShieldCheck, BarChart3, Cog, Inbox, CheckCircle2, Eye, EyeOff, X } from "lucide-react";
+import {
+  Shield,
+  ShieldCheck,
+  BarChart3,
+  Cog,
+  Inbox,
+  CheckCircle2,
+  Eye,
+  EyeOff,
+  X,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -30,7 +40,10 @@ function Authority() {
   useEffect(() => {
     if (typeof window !== "undefined") {
       // Admin always gets access automatically
-      if (user?.role === "admin") { setUnlocked(true); return; }
+      if (user?.role === "admin") {
+        setUnlocked(true);
+        return;
+      }
       if (sessionStorage.getItem("authorityUnlocked") === "1") setUnlocked(true);
     }
   }, [user]);
@@ -66,7 +79,10 @@ function Authority() {
             <input
               type={showPass ? "text" : "password"}
               value={pass}
-              onChange={(e) => { setPass(e.target.value); setError(""); }}
+              onChange={(e) => {
+                setPass(e.target.value);
+                setError("");
+              }}
               onKeyDown={(e) => e.key === "Enter" && tryUnlock()}
               placeholder="Password"
               className="w-full px-3 py-2.5 pr-10 rounded-lg border border-border bg-background text-sm outline-none focus:ring-2 focus:ring-ring"
@@ -95,16 +111,28 @@ function Authority() {
 
   const pending = reports.filter((r) => r.status !== "Resolved");
   const resolved = reports.filter((r) => r.status === "Resolved");
-  const week = reports.filter((r) => r.status === "Resolved" && r.createdAt >= Date.now() - 7 * 86400000);
+  const week = reports.filter(
+    (r) => r.status === "Resolved" && r.createdAt >= Date.now() - 7 * 86400000,
+  );
 
   const changeStatus = (id: string, status: IssueStatus) => {
     setStatus(id, status);
     const report = reports.find((r) => r.id === id);
     if (status === "In Progress") {
-      push({ type: "verified", title: "Your report was verified", body: `"${report?.title}" is now in progress.`, reportId: id });
+      push({
+        type: "verified",
+        title: "Your report was verified",
+        body: `"${report?.title}" is now in progress.`,
+        reportId: id,
+      });
       if (report?.reporterId === user.id) addPoints(25, "Report verified");
     } else if (status === "Resolved") {
-      push({ type: "resolved", title: "Your issue was resolved", body: `"${report?.title}" has been marked resolved.`, reportId: id });
+      push({
+        type: "resolved",
+        title: "Your issue was resolved",
+        body: `"${report?.title}" has been marked resolved.`,
+        reportId: id,
+      });
       if (report?.reporterId === user.id) addPoints(50, "Report resolved");
     }
     toast.success(`Status updated to ${status}`);
@@ -145,33 +173,39 @@ function Authority() {
       )}
 
       {tab === "pending" && (
-        <ReportList reports={pending} actions={(r) => (
-          <select
-            value={r.status}
-            onChange={(e) => changeStatus(r.id, e.target.value as IssueStatus)}
-            className="h-9 px-2 rounded-md border border-border bg-background text-sm"
-          >
-            <option value="Pending">Pending</option>
-            <option value="In Progress">In Progress</option>
-            <option value="Resolved">Resolved</option>
-          </select>
-        )} />
+        <ReportList
+          reports={pending}
+          actions={(r) => (
+            <select
+              value={r.status}
+              onChange={(e) => changeStatus(r.id, e.target.value as IssueStatus)}
+              className="h-9 px-2 rounded-md border border-border bg-background text-sm"
+            >
+              <option value="Pending">Pending</option>
+              <option value="In Progress">In Progress</option>
+              <option value="Resolved">Resolved</option>
+            </select>
+          )}
+        />
       )}
 
       {tab === "resolved" && (
-        <ReportList reports={resolved} actions={(r) => (
-          <StatusBadge status={r.status} />
-        )} />
+        <ReportList reports={resolved} actions={(r) => <StatusBadge status={r.status} />} />
       )}
 
       {tab === "settings" && (
         <div className="bg-card border border-border rounded-2xl p-6 space-y-4 max-w-md">
           <div>
             <p className="font-semibold mb-1">Authority role</p>
-            <p className="text-sm text-muted-foreground mb-3">You currently have authority privileges.</p>
+            <p className="text-sm text-muted-foreground mb-3">
+              You currently have authority privileges.
+            </p>
             {user.role !== "admin" && (
               <button
-                onClick={() => { setRole("user"); toast.success("Reverted to regular user"); }}
+                onClick={() => {
+                  setRole("user");
+                  toast.success("Reverted to regular user");
+                }}
                 className="px-4 py-2 rounded-md border border-border text-sm"
               >
                 Revoke authority role
@@ -194,7 +228,8 @@ function Stat({ label, value }: { label: string; value: number }) {
 }
 
 function ReportList({
-  reports, actions,
+  reports,
+  actions,
 }: {
   reports: import("@/lib/store").Report[];
   actions: (r: import("@/lib/store").Report) => React.ReactNode;
@@ -209,7 +244,10 @@ function ReportList({
   return (
     <div className="space-y-3">
       {reports.map((r) => (
-        <div key={r.id} className="bg-card border border-border rounded-2xl p-4 flex items-center gap-4 flex-wrap">
+        <div
+          key={r.id}
+          className="bg-card border border-border rounded-2xl p-4 flex items-center gap-4 flex-wrap"
+        >
           <div className="flex-1 min-w-0">
             <p className="font-semibold truncate">{r.title}</p>
             <p className="text-xs text-muted-foreground">

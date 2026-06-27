@@ -5,6 +5,31 @@ import { requireAuth } from "@/lib/auth-guard";
 import { useReports, CATEGORIES, type Category, timeAgo } from "@/lib/store";
 import { useState, useMemo, useEffect, useRef } from "react";
 
+/* ── Leaflet CDN typings (avoids no-explicit-any) ─────────────────────── */
+interface LMarker {
+  addTo: (map: LMap) => LMarker;
+  on: (
+    ev: string,
+    cb: (e: {
+      originalEvent?: Event;
+      target: { getLatLng: () => { lat: number; lng: number } };
+    }) => void,
+  ) => void;
+}
+interface LMap {
+  setView: (ll: [number, number], z: number) => LMap;
+  on: (ev: string, cb: (e?: { latlng?: { lat: number; lng: number } }) => void) => void;
+  removeLayer: (m: LMarker) => void;
+  flyTo: (ll: [number, number], z: number, opts?: object) => void;
+}
+interface LStatic {
+  map: (el: HTMLElement, opts?: object) => LMap;
+  tileLayer: (url: string, opts?: object) => { addTo: (m: LMap) => void };
+  marker: (ll: [number, number], opts?: object) => LMarker;
+  divIcon: (opts: object) => object;
+}
+const getL = (): LStatic | undefined => (window as Window & { L?: LStatic }).L;
+
 export const Route = createFileRoute("/map")({
   head: () => ({ meta: [{ title: "City Issue Map — IssueSnap" }] }),
   beforeLoad: () => requireAuth(),
@@ -34,19 +59,31 @@ function urgencyHex(u: string) {
 
 // Interactive Leaflet map showing ALL pins
 function LeafletMap({
-  reports, selectedId, onSelect,
+  reports,
+  selectedId,
+  onSelect,
 }: {
-  reports: Array<{ id: string; title: string; lat: number; lng: number; urgency: string; category: string; location: string }>;
+  reports: Array<{
+    id: string;
+    title: string;
+    lat: number;
+    lng: number;
+    urgency: string;
+    category: string;
+    location: string;
+  }>;
   selectedId: string | null;
   onSelect: (id: string | null) => void;
 }) {
   const mapDivRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<any>(null);
-  const markersRef = useRef<Map<string, any>>(new Map());
+  const mapRef = useRef<LMap | null>(null);
+  const markersRef = useRef<Map<string, LMarker>>(new Map());
   const onSelectRef = useRef(onSelect);
 
   // Keep ref in sync with latest prop without stale closures
-  useEffect(() => { onSelectRef.current = onSelect; });
+  useEffect(() => {
+    onSelectRef.current = onSelect;
+  });
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -57,7 +94,10 @@ function LeafletMap({
       link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
       document.head.appendChild(link);
     }
-    if ((window as any).L) { setReady(true); return; }
+    if (getL()) {
+      setReady(true);
+      return;
+    }
     const script = document.createElement("script");
     script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
     script.onload = () => setReady(true);
@@ -67,7 +107,8 @@ function LeafletMap({
   // Init map
   useEffect(() => {
     if (!ready || !mapDivRef.current || mapRef.current) return;
-    const L = (window as any).L;
+    const L = getL();
+    if (!L) return;
     const map = L.map(mapDivRef.current, { zoomControl: true }).setView([22, 79], 5);
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: "© OpenStreetMap contributors",
@@ -79,13 +120,17 @@ function LeafletMap({
   // Add / update markers whenever reports change
   useEffect(() => {
     if (!ready || !mapRef.current) return;
-    const L = (window as any).L;
+    const L = getL();
+    if (!L) return;
     const map = mapRef.current;
 
     // Remove old markers that are no longer in the list
     const currentIds = new Set(reports.map((r) => r.id));
     markersRef.current.forEach((marker, id) => {
-      if (!currentIds.has(id)) { map.removeLayer(marker); markersRef.current.delete(id); }
+      if (!currentIds.has(id)) {
+        map.removeLayer(marker);
+        markersRef.current.delete(id);
+      }
     });
 
     // Add new markers
@@ -107,8 +152,8 @@ function LeafletMap({
         iconAnchor: [14, 28],
       });
       const marker = L.marker([r.lat, r.lng], { icon }).addTo(map);
-      marker.on("click", (e: any) => {
-        e.originalEvent.stopPropagation();
+      marker.on("click", (e) => {
+        e.originalEvent?.stopPropagation();
         onSelectRef.current(r.id);
       });
       markersRef.current.set(r.id, marker);
@@ -124,9 +169,7 @@ function LeafletMap({
     }
   }, [selectedId, ready]);
 
-  return (
-    <div ref={mapDivRef} className="w-full h-full" style={{ minHeight: 400 }} />
-  );
+  return <div ref={mapDivRef} className="w-full h-full" style={{ minHeight: 400 }} />;
 }
 
 function MapPage() {
@@ -135,7 +178,12 @@ function MapPage() {
   const [selected, setSelected] = useState<string | null>(null);
 
   const toggle = (c: Category) =>
-    setActive((prev) => { const n = new Set(prev); n.has(c) ? n.delete(c) : n.add(c); return n; });
+    setActive((prev) => {
+      const n = new Set(prev);
+      if (n.has(c)) n.delete(c);
+      else n.add(c);
+      return n;
+    });
 
   const visible = reports.filter((r) => active.has(r.category));
   const selectedReport = visible.find((r) => r.id === selected) ?? null;
@@ -145,7 +193,14 @@ function MapPage() {
     () =>
       visible.map((r) => {
         const coords = r.lat && r.lng ? { lat: r.lat, lng: r.lng } : pseudoLatLng(r.location, r.id);
-        return { id: r.id, title: r.title, urgency: r.urgency, category: r.category, location: r.location, ...coords };
+        return {
+          id: r.id,
+          title: r.title,
+          urgency: r.urgency,
+          category: r.category,
+          location: r.location,
+          ...coords,
+        };
       }),
     [visible],
   );
@@ -161,13 +216,23 @@ function MapPage() {
             <ul className="space-y-2 text-sm">
               {CATEGORIES.map((c) => (
                 <li key={c} className="flex items-center gap-2">
-                  <input type="checkbox" checked={active.has(c)} onChange={() => toggle(c)} id={`cat-${c}`} />
-                  <label htmlFor={`cat-${c}`} className="cursor-pointer">{c}</label>
+                  <input
+                    type="checkbox"
+                    checked={active.has(c)}
+                    onChange={() => toggle(c)}
+                    id={`cat-${c}`}
+                  />
+                  <label htmlFor={`cat-${c}`} className="cursor-pointer">
+                    {c}
+                  </label>
                 </li>
               ))}
             </ul>
             <button
-              onClick={() => { setActive(new Set(CATEGORIES)); setSelected(null); }}
+              onClick={() => {
+                setActive(new Set(CATEGORIES));
+                setSelected(null);
+              }}
               className="mt-3 w-full py-2 border border-border rounded-lg text-sm bg-card hover:bg-muted"
             >
               Show All
@@ -192,10 +257,15 @@ function MapPage() {
                 }`}
               >
                 <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: urgencyColor(r.urgency) }} />
+                  <span
+                    className="w-2.5 h-2.5 rounded-full shrink-0"
+                    style={{ background: urgencyColor(r.urgency) }}
+                  />
                   <p className="text-sm font-medium truncate">{r.title}</p>
                 </div>
-                <p className="text-[10px] text-muted-foreground mt-0.5 ml-4 truncate">{r.location}</p>
+                <p className="text-[10px] text-muted-foreground mt-0.5 ml-4 truncate">
+                  {r.location}
+                </p>
                 <p className="text-[10px] text-muted-foreground ml-4">{timeAgo(r.createdAt)}</p>
               </button>
             ))}
@@ -209,7 +279,9 @@ function MapPage() {
               <div className="text-center">
                 <MapPin className="w-12 h-12 mx-auto text-muted-foreground opacity-30 mb-3" />
                 <p className="font-semibold">No issues reported yet.</p>
-                <p className="text-sm text-muted-foreground mt-1">Reports will appear as pins once submitted.</p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Reports will appear as pins once submitted.
+                </p>
               </div>
             </div>
           ) : (
@@ -219,7 +291,12 @@ function MapPage() {
           {/* Urgency legend */}
           <div className="absolute bottom-3 right-3 bg-card/90 backdrop-blur-sm border border-border rounded-xl px-3 py-2 text-xs shadow-lg z-[1000]">
             <p className="font-semibold mb-1.5">Urgency</p>
-            {[["Critical","#ef4444"],["High","#f97316"],["Medium","#eab308"],["Low","#22c55e"]].map(([label, color]) => (
+            {[
+              ["Critical", "#ef4444"],
+              ["High", "#f97316"],
+              ["Medium", "#eab308"],
+              ["Low", "#22c55e"],
+            ].map(([label, color]) => (
               <div key={label} className="flex items-center gap-1.5 mb-0.5">
                 <span className="w-2.5 h-2.5 rounded-full" style={{ background: color }} />
                 {label}
@@ -231,23 +308,39 @@ function MapPage() {
           {selectedReport && (
             <div className="absolute top-3 left-3 bg-card border border-border rounded-xl p-3 shadow-xl w-64 z-[1000]">
               <div className="flex items-start gap-2">
-                <span className="w-2.5 h-2.5 rounded-full mt-1 shrink-0" style={{ background: urgencyColor(selectedReport.urgency) }} />
+                <span
+                  className="w-2.5 h-2.5 rounded-full mt-1 shrink-0"
+                  style={{ background: urgencyColor(selectedReport.urgency) }}
+                />
                 <div className="min-w-0 flex-1">
                   <p className="font-semibold text-sm truncate">{selectedReport.title}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">{selectedReport.category} · {selectedReport.urgency}</p>
-                  <p className="text-xs text-muted-foreground truncate mt-0.5">{selectedReport.location}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">By {selectedReport.reporterName} · {timeAgo(selectedReport.createdAt)}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {selectedReport.category} · {selectedReport.urgency}
+                  </p>
+                  <p className="text-xs text-muted-foreground truncate mt-0.5">
+                    {selectedReport.location}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    By {selectedReport.reporterName} · {timeAgo(selectedReport.createdAt)}
+                  </p>
                   {selectedReport.lat && selectedReport.lng && (
-                    <p className="text-[10px] text-primary mt-1">📍 GPS: {selectedReport.lat.toFixed(4)}, {selectedReport.lng.toFixed(4)}</p>
+                    <p className="text-[10px] text-primary mt-1">
+                      📍 GPS: {selectedReport.lat.toFixed(4)}, {selectedReport.lng.toFixed(4)}
+                    </p>
                   )}
-                  <Link to="/issue/$id" params={{ id: selectedReport.id }}
-                    className="mt-2 text-xs text-primary hover:underline block">
+                  <Link
+                    to="/issue/$id"
+                    params={{ id: selectedReport.id }}
+                    className="mt-2 text-xs text-primary hover:underline block"
+                  >
                     View full report →
                   </Link>
                 </div>
               </div>
-              <button onClick={() => setSelected(null)}
-                className="absolute top-2 right-2 w-6 h-6 grid place-items-center rounded-full hover:bg-muted text-muted-foreground">
+              <button
+                onClick={() => setSelected(null)}
+                className="absolute top-2 right-2 w-6 h-6 grid place-items-center rounded-full hover:bg-muted text-muted-foreground"
+              >
                 <X className="w-3.5 h-3.5" />
               </button>
             </div>

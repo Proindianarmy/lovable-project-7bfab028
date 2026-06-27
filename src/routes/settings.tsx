@@ -6,8 +6,14 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { LogOut, Camera } from "lucide-react";
 import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 
@@ -72,7 +78,6 @@ function SettingsPage() {
     <AppShell title="Profile & Settings">
       <div className="grid lg:grid-cols-[1fr_280px] gap-6">
         <div className="space-y-6">
-
           {/* ── Profile section ── */}
           <section className="bg-card border border-border rounded-2xl p-6">
             <h2 className="font-bold mb-5">Profile</h2>
@@ -83,11 +88,7 @@ function SettingsPage() {
               <div className="relative shrink-0">
                 <div className="w-24 h-24 rounded-full bg-muted overflow-hidden border-2 border-border grid place-items-center">
                   {isCustomPhoto ? (
-                    <img
-                      src={avatar}
-                      alt="Profile photo"
-                      className="w-full h-full object-cover"
-                    />
+                    <img src={avatar} alt="Profile photo" className="w-full h-full object-cover" />
                   ) : (
                     <span className="text-4xl leading-none">{avatar}</span>
                   )}
@@ -135,7 +136,10 @@ function SettingsPage() {
                 {isCustomPhoto && (
                   <button
                     type="button"
-                    onClick={() => { setAvatar(AVATAR_OPTIONS[0]); updateProfile({ avatar: AVATAR_OPTIONS[0] }); }}
+                    onClick={() => {
+                      setAvatar(AVATAR_OPTIONS[0]);
+                      updateProfile({ avatar: AVATAR_OPTIONS[0] });
+                    }}
                     className="text-xs text-primary hover:underline"
                   >
                     Remove photo and use emoji instead
@@ -187,13 +191,17 @@ function SettingsPage() {
           <section className="bg-card border border-border rounded-2xl p-6">
             <h2 className="font-bold mb-4">My reports</h2>
             {myReports.length === 0 ? (
-              <p className="text-sm text-muted-foreground">You haven't submitted any reports yet.</p>
+              <p className="text-sm text-muted-foreground">
+                You haven't submitted any reports yet.
+              </p>
             ) : (
               <ul className="divide-y divide-border">
                 {myReports.slice(0, 10).map((r) => (
                   <li key={r.id} className="py-2 flex items-center justify-between gap-2">
                     <span className="truncate text-sm">{r.title}</span>
-                    <span className="badge-pill bg-muted text-muted-foreground shrink-0">{r.status}</span>
+                    <span className="badge-pill bg-muted text-muted-foreground shrink-0">
+                      {r.status}
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -217,11 +225,18 @@ function SettingsPage() {
               <AlertDialogContent>
                 <AlertDialogHeader>
                   <AlertDialogTitle>Log out?</AlertDialogTitle>
-                  <AlertDialogDescription>Are you sure you want to log out of IssueSnap?</AlertDialogDescription>
+                  <AlertDialogDescription>
+                    Are you sure you want to log out of IssueSnap?
+                  </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={() => { logout(); navigate({ to: "/" }); }}>
+                  <AlertDialogAction
+                    onClick={() => {
+                      logout();
+                      navigate({ to: "/" });
+                    }}
+                  >
                     Log out
                   </AlertDialogAction>
                 </AlertDialogFooter>
@@ -253,10 +268,14 @@ function SettingsPage() {
             <p className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Level</p>
             <p className="text-xl font-bold">{lvl.level.name}</p>
             <div className="mt-3 h-2 bg-muted rounded-full overflow-hidden">
-              <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${lvl.progress}%` }} />
+              <div
+                className="h-full bg-primary rounded-full transition-all"
+                style={{ width: `${lvl.progress}%` }}
+              />
             </div>
             <p className="text-xs text-muted-foreground mt-2">
-              {user.points} pts{lvl.next ? ` · ${lvl.next.min - user.points} to ${lvl.next.name}` : " · Max level"}
+              {user.points} pts
+              {lvl.next ? ` · ${lvl.next.min - user.points} to ${lvl.next.name}` : " · Max level"}
             </p>
           </div>
 
@@ -286,7 +305,15 @@ function SettingsPage() {
   );
 }
 
-function Field({ label, children, full }: { label: string; children: React.ReactNode; full?: boolean }) {
+function Field({
+  label,
+  children,
+  full,
+}: {
+  label: string;
+  children: React.ReactNode;
+  full?: boolean;
+}) {
   return (
     <label className={`block ${full ? "sm:col-span-2" : ""}`}>
       <span className="text-sm font-medium block mb-1.5">{label}</span>
@@ -295,7 +322,15 @@ function Field({ label, children, full }: { label: string; children: React.React
   );
 }
 
-function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
+function Toggle({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
   return (
     <label className="flex items-center justify-between text-sm cursor-pointer">
       <span>{label}</span>

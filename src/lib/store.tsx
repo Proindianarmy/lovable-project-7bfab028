@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { toast } from "sonner";
+import { censorText, containsBannedWord, BANNED_WORDS } from "./badwords";
 
 /* =========================================================================
  * Types
@@ -48,15 +49,15 @@ export interface Report {
   urgency: Urgency;
   status: IssueStatus;
   photos?: string[]; // up to 5 gallery photos
-  image?: string;   // kept for backward compat
+  image?: string; // kept for backward compat
   aiTags?: string[];
   aiConfidence?: number;
   reporterId: string;
   reporterName: string;
   reporterAvatar?: string;
   createdAt: number;
-  upvotes: string[];    // user ids who upvoted
-  downvotes: string[];  // user ids who downvoted
+  upvotes: string[]; // user ids who upvoted
+  downvotes: string[]; // user ids who downvoted
   comments: { id: string; userId: string; userName: string; text: string; at: number }[];
   spamFlags: string[];
   censored: boolean;
@@ -97,28 +98,14 @@ export const ADMIN_NAME = "Admin";
  * Utilities — profanity, spam, AI sim, rating, levels
  * ========================================================================= */
 
-export const AVATAR_OPTIONS = [
-  "🦊", "🐼", "🐯", "🐸", "🦁", "🐧", "🐵", "🐶",
-];
+export const AVATAR_OPTIONS = ["🦊", "🐼", "🐯", "🐸", "🦁", "🐧", "🐵", "🐶"];
 
-const BANNED_WORDS = [
-  "damn", "hell", "crap", "stupid", "idiot", "shit", "fuck", "bitch", "ass",
-  "bastard", "dick", "piss",
-];
+export { censorText, containsBannedWord, BANNED_WORDS };
 
-export function censorText(text: string): { text: string; flagged: boolean } {
-  let flagged = false;
-  const out = text.replace(/\b(\w+)\b/g, (w) => {
-    if (BANNED_WORDS.includes(w.toLowerCase())) {
-      flagged = true;
-      return "*".repeat(w.length);
-    }
-    return w;
-  });
-  return { text: out, flagged };
-}
-
-export function detectSpam(title: string, description: string): {
+export function detectSpam(
+  title: string,
+  description: string,
+): {
   score: number;
   reasons: string[];
 } {
@@ -140,14 +127,12 @@ export function detectSpam(title: string, description: string): {
     reasons.push("Text is entirely uppercase.");
   }
   const words = t.split(/\s+/).filter(Boolean);
-  const nonsense = words.filter(
-    (w) => w.length > 5 && !/[aeiou]/i.test(w),
-  ).length;
+  const nonsense = words.filter((w) => w.length > 5 && !/[aeiou]/i.test(w)).length;
   if (nonsense >= 2) {
     score += 2;
     reasons.push("Contains nonsense words.");
   }
-  if (BANNED_WORDS.some((w) => t.toLowerCase().includes(w))) {
+  if (containsBannedWord(t)) {
     score += 2;
     reasons.push("Contains profanity.");
   }
@@ -179,7 +164,23 @@ const AI_CATEGORY_TAGS: Record<Category, string[]> = {
  * that catches the most obvious cases (solid fills, perfect gradients, cartoons).
  */
 
-/* ── Helper: convert dataUrl to a Blob for multipart upload ── */
+/* ═══════════════════════════════════════════════════════════════════════
+ * AI / HAND-DRAWN IMAGE DETECTION
+ * ═══════════════════════════════════════════════════════════════════════
+ *
+ * TWO-TIER SYSTEM:
+ *
+ * Tier 1 (instant, no API): Multi-scale canvas classifier with 12 signals
+ *   - Works offline, no key needed
+ *   - Catches cartoons, drawings, simple AI art, solid fills, gradients
+ *   - AGGRESSIVE thresholds — if borderline, we reject
+ *
+ * Tier 2 (accurate, free API): Sightengine genai model
+ *   - Set VITE_SIGHTENGINE_USER + VITE_SIGHTENGINE_SECRET in .env
+ *   - 500 free checks/month, catches modern photorealistic AI images
+ *   - Automatically used when keys are present
+ * ═══════════════════════════════════════════════════════════════════════ */
+
 function dataUrlToBlob(dataUrl: string): Blob {
   const [header, b64] = dataUrl.split(",");
   const mime = header.match(/:(.*?);/)?.[1] ?? "image/jpeg";
@@ -189,195 +190,253 @@ function dataUrlToBlob(dataUrl: string): Blob {
   return new Blob([arr], { type: mime });
 }
 
-/* ── Real API detection via Sightengine ── */
-async function detectViaSightengine(dataUrl: string): Promise<{
-  isAIGenerated: boolean;
-  aiGeneratedConfidence: number;
-}> {
-  const user   = (import.meta.env?.VITE_SIGHTENGINE_USER   ?? "").trim();
+async function detectViaSightengine(dataUrl: string): Promise<{ isAI: boolean; score: number }> {
+  const user = (import.meta.env?.VITE_SIGHTENGINE_USER ?? "").trim();
   const secret = (import.meta.env?.VITE_SIGHTENGINE_SECRET ?? "").trim();
   if (!user || !secret) throw new Error("no-key");
-
   const fd = new FormData();
-  fd.append("media",   dataUrlToBlob(dataUrl), "image.jpg");
-  fd.append("models",  "genai");
+  fd.append("media", dataUrlToBlob(dataUrl), "img.jpg");
+  fd.append("models", "genai");
   fd.append("api_user", user);
   fd.append("api_secret", secret);
+  const res = await fetch("https://api.sightengine.com/1.0/check.json", {
+    method: "POST",
+    body: fd,
+  });
+  const json = (await res.json()) as { status: string; type?: { ai_generated?: number } };
+  if (json.status !== "success") throw new Error("api-err");
+  const score = json.type?.ai_generated ?? 0;
+  return { isAI: score >= 0.55, score };
+}
 
-  const res  = await fetch("https://api.sightengine.com/1.0/check.json", { method: "POST", body: fd });
-  const json = await res.json() as {
-    status: string;
-    type?: { ai_generated?: number };
-  };
+/* ── Canvas helpers ── */
+function getPixels(img: HTMLImageElement, size: number): Uint8ClampedArray {
+  const c = document.createElement("canvas");
+  c.width = c.height = size;
+  const ctx = c.getContext("2d")!;
+  ctx.drawImage(img, 0, 0, size, size);
+  return ctx.getImageData(0, 0, size, size).data;
+}
 
-  if (json.status !== "success") throw new Error("api-error");
+interface CanvasSignals {
+  /* colour diversity */
+  coarse4bit: number; // unique colours at 4-bit depth (max 4096)
+  fine6bit: number; // unique colours at 6-bit depth (max 262144)
+  /* transition stats from 128×128 */
+  flatRatio: number; // pixel pairs with Δ=0 in ALL 3 channels
+  softRatio: number; // pixel pairs with total Δ ≤ 6
+  hardRatio: number; // pixel pairs with total Δ > 55
+  avgNoise: number; // mean |Δ| per pair
+  /* RGB balance */
+  rgbBalance: number; // |R-G|+|G-B|+|R-B| (real photos: natural cast)
+  /* micro-texture from 32×32 */
+  lumVar32: number; // luminance variance — real cameras: >180 always
+  /* block uniformity from 256×256 in 8×8 blocks */
+  lowVarBlockRatio: number; // fraction of 8×8 blocks with inner-variance < 6
+  /* saturation diversity */
+  satVar: number; // std-dev of per-pixel saturation
+  /* edge continuity — real photos have fractal edges, AI has smooth curves */
+  edgeContinuity: number; // ratio of pairs where BOTH horizontal neighbors are also hard
+  /* frequency signal — real photos have high-freq noise at 4×4 */
+  hiFreqEnergy: number; // mean |Δ| at 4×4 (real photo > 8, AI art < 4)
+}
 
-  const score = json.type?.ai_generated ?? 0;   // 0.0 – 1.0
+function computeSignals(img: HTMLImageElement): CanvasSignals {
+  /* ── 128×128: main stats ── */
+  const S1 = 128;
+  const d1 = getPixels(img, S1);
+  const colSet4 = new Set<number>();
+  const colSet6 = new Set<number>();
+  let flat = 0,
+    soft = 0,
+    hard = 0,
+    pairs = 0,
+    noiseSum = 0;
+  let rT = 0,
+    gT = 0,
+    bT = 0,
+    satSum = 0,
+    satSqSum = 0,
+    pxN = 0;
+  const stride1 = S1 * 4;
+  let hardPairs = 0,
+    bothHard = 0;
+
+  for (let y = 0; y < S1; y++) {
+    for (let x = 0; x < S1; x++) {
+      const i = (y * S1 + x) * 4;
+      const r = d1[i],
+        g = d1[i + 1],
+        b = d1[i + 2];
+      rT += r;
+      gT += g;
+      bT += b;
+      pxN++;
+      colSet4.add(((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4));
+      colSet6.add(((r >> 2) << 12) | ((g >> 2) << 6) | (b >> 2));
+      // saturation
+      const mx = Math.max(r, g, b),
+        mn = Math.min(r, g, b);
+      const sat = mx === 0 ? 0 : (mx - mn) / mx;
+      satSum += sat;
+      satSqSum += sat * sat;
+
+      let isHardH = false;
+      if (x < S1 - 1) {
+        const j = i + 4;
+        const d = Math.abs(r - d1[j]) + Math.abs(g - d1[j + 1]) + Math.abs(b - d1[j + 2]);
+        noiseSum += d;
+        pairs++;
+        if (d === 0) flat++;
+        else if (d <= 6) soft++;
+        else if (d > 55) {
+          hard++;
+          isHardH = true;
+        }
+      }
+      if (y < S1 - 1) {
+        const j = i + stride1;
+        const d = Math.abs(r - d1[j]) + Math.abs(g - d1[j + 1]) + Math.abs(b - d1[j + 2]);
+        noiseSum += d;
+        pairs++;
+        if (d === 0) flat++;
+        else if (d <= 6) soft++;
+        else if (d > 55) hard++;
+      }
+      // edge continuity: if this H pair is hard, is the next H pair also hard?
+      if (isHardH && x < S1 - 2) {
+        hardPairs++;
+        const j2 = i + 8;
+        const d2 =
+          Math.abs(d1[i + 4] - d1[j2]) +
+          Math.abs(d1[i + 5] - d1[j2 + 1]) +
+          Math.abs(d1[i + 6] - d1[j2 + 2]);
+        if (d2 > 55) bothHard++;
+      }
+    }
+  }
+  const avgR = rT / pxN,
+    avgG = gT / pxN,
+    avgB = bT / pxN;
+  const satMean = satSum / pxN;
+  const satVar = Math.sqrt(Math.max(0, satSqSum / pxN - satMean * satMean));
+
+  /* ── 32×32: luminance variance ── */
+  const d2 = getPixels(img, 32);
+  let lumS = 0;
+  const lums: number[] = [];
+  for (let i = 0; i < d2.length; i += 4) {
+    const l = 0.299 * d2[i] + 0.587 * d2[i + 1] + 0.114 * d2[i + 2];
+    lums.push(l);
+    lumS += l;
+  }
+  const lMean = lumS / lums.length;
+  const lumVar32 = lums.reduce((s, v) => s + (v - lMean) ** 2, 0) / lums.length;
+
+  /* ── 256×256: block uniformity ── */
+  const S3 = 256,
+    BS = 8;
+  const d3 = getPixels(img, S3);
+  let lowB = 0,
+    totB = 0;
+  for (let by = 0; by < S3; by += BS) {
+    for (let bx = 0; bx < S3; bx += BS) {
+      let bs = 0;
+      const bl: number[] = [];
+      for (let dy = 0; dy < BS; dy++)
+        for (let dx = 0; dx < BS; dx++) {
+          const i = ((by + dy) * S3 + (bx + dx)) * 4;
+          const l = 0.299 * d3[i] + 0.587 * d3[i + 1] + 0.114 * d3[i + 2];
+          bl.push(l);
+          bs += l;
+        }
+      const bm = bs / bl.length;
+      const bv = bl.reduce((s, v) => s + (v - bm) ** 2, 0) / bl.length;
+      if (bv < 6) lowB++;
+      totB++;
+    }
+  }
+
+  /* ── 4×4: high-frequency energy ── */
+  const d4 = getPixels(img, 4);
+  let hfSum = 0,
+    hfN = 0;
+  for (let i = 0; i < d4.length - 4; i += 4) {
+    hfSum +=
+      Math.abs(d4[i] - d4[i + 4]) +
+      Math.abs(d4[i + 1] - d4[i + 5]) +
+      Math.abs(d4[i + 2] - d4[i + 6]);
+    hfN++;
+  }
+
   return {
-    isAIGenerated: score >= 0.65,
-    aiGeneratedConfidence: Math.round(score * 100),
+    coarse4bit: colSet4.size,
+    fine6bit: colSet6.size,
+    flatRatio: flat / pairs,
+    softRatio: soft / pairs,
+    hardRatio: hard / pairs,
+    avgNoise: noiseSum / pairs,
+    rgbBalance: Math.abs(avgR - avgG) + Math.abs(avgG - avgB) + Math.abs(avgR - avgB),
+    lumVar32,
+    lowVarBlockRatio: lowB / totB,
+    satVar,
+    edgeContinuity: hardPairs > 0 ? bothHard / hardPairs : 0,
+    hiFreqEnergy: hfN > 0 ? hfSum / hfN : 0,
   };
 }
 
-/* ── Fallback: aggressive canvas-based classifier ── */
-async function detectViaCanvas(dataUrl: string): Promise<{
-  isAIGenerated: boolean;
-  aiGeneratedConfidence: number;
-}> {
+function classifyCanvas(sig: CanvasSignals): { isAI: boolean; score: number; reason: string } {
+  /* Each signal returns a weight (0 = not fired, positive = fired toward AI/drawn).
+     Total weight is normalised to 0–1. Reject if ≥ 0.38 */
+  const checks: Array<{ w: number; fire: boolean; label: string }> = [
+    // Colour diversity — real photos have huge palettes
+    { w: 2.5, fire: sig.coarse4bit < 350, label: "low-coarse-colours" },
+    { w: 2.0, fire: sig.fine6bit < 900, label: "low-fine-colours" },
+    // Smoothness — AI art and drawings are too smooth
+    { w: 3.0, fire: sig.flatRatio > 0.055, label: "too-flat" },
+    { w: 2.5, fire: sig.softRatio > 0.48, label: "too-smooth" },
+    { w: 2.0, fire: sig.softRatio > 0.38 && sig.avgNoise < 18, label: "smooth+low-noise" },
+    // Micro-texture — camera sensor always adds grain
+    { w: 3.5, fire: sig.lumVar32 < 90, label: "no-micro-texture" },
+    // Block uniformity — AI art has perfectly uniform fills
+    { w: 4.0, fire: sig.lowVarBlockRatio > 0.45, label: "too-many-uniform-blocks" },
+    // High-freq energy — real photos have JPEG grain at 4×4 scale
+    { w: 3.0, fire: sig.hiFreqEnergy < 5, label: "no-hf-energy" },
+    // RGB balance — AI models output balanced palettes
+    { w: 1.5, fire: sig.rgbBalance < 10 && sig.avgNoise < 25, label: "balanced-rgb" },
+    // Saturation — hand-drawn images have very low or very uniform saturation
+    { w: 1.5, fire: sig.satVar < 0.04, label: "uniform-saturation" },
+    // Edge continuity — drawings have long straight edges (high continuity)
+    { w: 2.0, fire: sig.edgeContinuity > 0.75 && sig.flatRatio > 0.05, label: "drawing-edges" },
+    // Hard outlines + flat fills = hand-drawn
+    { w: 2.5, fire: sig.hardRatio > 0.1 && sig.flatRatio > 0.08, label: "cartoon-outline" },
+  ];
+
+  const total = checks.reduce((s, c) => s + c.w, 0);
+  const fired = checks.filter((c) => c.fire);
+  const firedW = fired.reduce((s, c) => s + c.w, 0);
+  const score = firedW / total;
+  const reason = fired.map((c) => c.label).join(", ") || "none";
+  return { isAI: score >= 0.38, score, reason };
+}
+
+async function detectViaCanvas(dataUrl: string): Promise<{ isAI: boolean; score: number }> {
   return new Promise((resolve) => {
     const img = new Image();
-
     img.onload = () => {
       try {
-        /* ── Pass 1: 128×128 — colour diversity & smoothness ── */
-        const P1 = 128;
-        const c1 = document.createElement("canvas");
-        c1.width = c1.height = P1;
-        const x1 = c1.getContext("2d");
-        if (!x1) { resolve({ isAIGenerated: false, aiGeneratedConfidence: 0 }); return; }
-        x1.drawImage(img, 0, 0, P1, P1);
-        const d1 = x1.getImageData(0, 0, P1, P1).data;
-
-        const colourSet4  = new Set<number>(); // 4-bit per channel (4096 buckets)
-        const colourSet6  = new Set<number>(); // 6-bit per channel (262144 buckets)
-        let flat = 0, soft = 0, hard = 0, pairs = 0;
-        let rSum = 0, gSum = 0, bSum = 0;
-
-        for (let y = 0; y < P1; y++) {
-          for (let x = 0; x < P1; x++) {
-            const i = (y * P1 + x) * 4;
-            const r = d1[i], g = d1[i+1], b = d1[i+2];
-            rSum += r; gSum += g; bSum += b;
-            colourSet4.add(((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4));
-            colourSet6.add(((r >> 2) << 12) | ((g >> 2) << 6) | (b >> 2));
-
-            // horizontal neighbour
-            if (x < P1 - 1) {
-              const j = i + 4;
-              const d = Math.abs(r - d1[j]) + Math.abs(g - d1[j+1]) + Math.abs(b - d1[j+2]);
-              pairs++;
-              if (d === 0)    flat++;
-              else if (d < 8) soft++;
-              else if (d > 60) hard++;
-            }
-            // vertical neighbour
-            if (y < P1 - 1) {
-              const j = i + P1 * 4;
-              const d = Math.abs(r - d1[j]) + Math.abs(g - d1[j+1]) + Math.abs(b - d1[j+2]);
-              pairs++;
-              if (d === 0)    flat++;
-              else if (d < 8) soft++;
-              else if (d > 60) hard++;
-            }
-          }
-        }
-
-        const n          = P1 * P1;
-        const avgR       = rSum / n;
-        const avgG       = gSum / n;
-        const avgB       = bSum / n;
-        const flatR      = flat / pairs;
-        const softR      = soft / pairs;
-        const hardR      = hard / pairs;
-        const coarse     = colourSet4.size;   // real photo ≥ 900, AI/drawn < 600
-        const fine       = colourSet6.size;   // real photo ≥ 3000, cartoon < 800
-
-        /* ── Pass 2: 32×32 — micro-texture / sensor noise ── */
-        const P2 = 32;
-        const c2 = document.createElement("canvas");
-        c2.width = c2.height = P2;
-        const x2 = c2.getContext("2d");
-        if (!x2) { resolve({ isAIGenerated: false, aiGeneratedConfidence: 0 }); return; }
-        x2.drawImage(img, 0, 0, P2, P2);
-        const d2 = x2.getImageData(0, 0, P2, P2).data;
-
-        // Compute luminance variance — real cameras always have grain
-        let lumSum = 0;
-        const lums: number[] = [];
-        for (let i = 0; i < d2.length; i += 4) {
-          const lum = 0.299 * d2[i] + 0.587 * d2[i+1] + 0.114 * d2[i+2];
-          lums.push(lum);
-          lumSum += lum;
-        }
-        const lumMean = lumSum / lums.length;
-        const lumVar  = lums.reduce((s, v) => s + (v - lumMean) ** 2, 0) / lums.length;
-        // Real photos lumVar > 150 almost always (sensor grain)
-        // AI art / drawings: 20–120
-
-        /* ── Pass 3: 256×256 — DCT-like block uniformity ── */
-        // Divide into 8×8 blocks and measure variance WITHIN each block.
-        // AI art has extremely uniform blocks (smooth colour fill).
-        // Real photos have noisy blocks even in "flat" areas.
-        const P3 = 256;
-        const BS = 8;
-        const c3 = document.createElement("canvas");
-        c3.width = c3.height = P3;
-        const x3 = c3.getContext("2d");
-        if (!x3) { resolve({ isAIGenerated: false, aiGeneratedConfidence: 0 }); return; }
-        x3.drawImage(img, 0, 0, P3, P3);
-        const d3 = x3.getImageData(0, 0, P3, P3).data;
-
-        let lowVarBlocks = 0;
-        let totalBlocks  = 0;
-        for (let by = 0; by < P3; by += BS) {
-          for (let bx = 0; bx < P3; bx += BS) {
-            let bSum2 = 0;
-            const bLums: number[] = [];
-            for (let dy = 0; dy < BS; dy++) {
-              for (let dx = 0; dx < BS; dx++) {
-                const i = ((by + dy) * P3 + (bx + dx)) * 4;
-                const l = 0.299 * d3[i] + 0.587 * d3[i+1] + 0.114 * d3[i+2];
-                bLums.push(l); bSum2 += l;
-              }
-            }
-            const bMean = bSum2 / bLums.length;
-            const bVar  = bLums.reduce((s, v) => s + (v - bMean) ** 2, 0) / bLums.length;
-            if (bVar < 8) lowVarBlocks++;   // almost no texture in this block
-            totalBlocks++;
-          }
-        }
-        const lowVarRatio = lowVarBlocks / totalBlocks;
-        // AI art: > 0.55 (most blocks are perfectly smooth)
-        // Real photos: < 0.35 (even sky has some grain / compression artefacts)
-
-        /* ── Score each signal 0–1 ── */
-        const signals: Array<{ weight: number; fired: boolean; label: string }> = [
-          // Colour signals
-          { weight: 2.0, fired: coarse < 400,                   label: "too-few-coarse-colours" },
-          { weight: 1.5, fired: fine   < 1200,                  label: "too-few-fine-colours"   },
-          // Smoothness signals
-          { weight: 2.0, fired: flatR  > 0.06,                  label: "too-flat"               },
-          { weight: 2.0, fired: softR  > 0.52,                  label: "too-smooth"             },
-          { weight: 1.0, fired: hardR  < 0.02 && softR > 0.40,  label: "no-edges-but-smooth"   },
-          // Texture / noise signals
-          { weight: 2.5, fired: lumVar  < 100,                  label: "no-micro-texture"       },
-          { weight: 3.0, fired: lowVarRatio > 0.50,             label: "too-many-flat-blocks"   },
-          // Colour balance (AI models output balanced palettes)
-          { weight: 1.5, fired: Math.abs(avgR - avgG) + Math.abs(avgG - avgB) + Math.abs(avgR - avgB) < 12, label: "balanced-rgb" },
-          // Hand-drawn: sharp outlines + large solid fills
-          { weight: 2.0, fired: hardR  > 0.12 && flatR > 0.10, label: "hand-drawn-outline"     },
-        ];
-
-        const totalWeight = signals.reduce((s, sig) => s + sig.weight, 0);
-        const firedWeight = signals.filter(s => s.fired).reduce((s, sig) => s + sig.weight, 0);
-        const score       = firedWeight / totalWeight;  // 0.0 – 1.0
-
-        // Require score ≥ 0.40 to reject (weighted majority)
-        const isAIGenerated        = score >= 0.40;
-        const aiGeneratedConfidence = Math.round(Math.min(96, score * 130));
-
-        resolve({ isAIGenerated, aiGeneratedConfidence });
+        const sig = computeSignals(img);
+        const { isAI, score } = classifyCanvas(sig);
+        resolve({ isAI, score });
       } catch {
-        resolve({ isAIGenerated: false, aiGeneratedConfidence: 0 });
+        resolve({ isAI: false, score: 0 });
       }
     };
-
-    img.onerror = () => resolve({ isAIGenerated: false, aiGeneratedConfidence: 0 });
+    img.onerror = () => resolve({ isAI: false, score: 0 });
     img.src = dataUrl;
   });
 }
 
-/* ── Public function called by report.tsx ── */
 export function simulateAIDetection(dataUrl?: string): Promise<{
   tags: string[];
   confidence: number;
@@ -386,9 +445,9 @@ export function simulateAIDetection(dataUrl?: string): Promise<{
   aiGeneratedConfidence: number;
 }> {
   return new Promise((resolve) => {
-    const cats     = CATEGORIES.filter((c) => c !== "Other");
+    const cats = CATEGORIES.filter((c) => c !== "Other");
     const category = cats[Math.floor(Math.random() * cats.length)];
-    const tags     = [...AI_CATEGORY_TAGS[category]].sort(() => 0.5 - Math.random()).slice(0, 3);
+    const tags = [...AI_CATEGORY_TAGS[category]].sort(() => 0.5 - Math.random()).slice(0, 3);
     const confidence = 82 + Math.floor(Math.random() * 14);
 
     if (!dataUrl) {
@@ -396,15 +455,21 @@ export function simulateAIDetection(dataUrl?: string): Promise<{
       return;
     }
 
-    // Try real API first, fall back to canvas classifier
+    // Try Sightengine API first, fall back to canvas
     detectViaSightengine(dataUrl)
-      .then(({ isAIGenerated, aiGeneratedConfidence }) => {
-        resolve({ tags, confidence, category, isAIGenerated, aiGeneratedConfidence });
+      .then(({ isAI, score }) => {
+        resolve({
+          tags,
+          confidence,
+          category,
+          isAIGenerated: isAI,
+          aiGeneratedConfidence: Math.round(score * 100),
+        });
       })
       .catch(() => {
-        // No API key or network error → canvas fallback
-        detectViaCanvas(dataUrl).then(({ isAIGenerated, aiGeneratedConfidence }) => {
-          resolve({ tags, confidence, category, isAIGenerated, aiGeneratedConfidence });
+        detectViaCanvas(dataUrl).then(({ isAI, score }) => {
+          const pct = Math.round(Math.min(95, score * 140));
+          resolve({ tags, confidence, category, isAIGenerated: isAI, aiGeneratedConfidence: pct });
         });
       });
   });
@@ -423,10 +488,33 @@ export function computeRating(r: Report): {
   const ageDays = (Date.now() - r.createdAt) / 86400000;
   if (ageDays > 3 && r.status !== "Resolved") s += 1;
   s = Math.max(1, Math.min(10, s));
-  if (s >= 8) return { score: s, label: "Critical", color: "bg-red-500/15 text-red-600 dark:text-red-400", emoji: "🔴" };
-  if (s >= 6) return { score: s, label: "High", color: "bg-orange-500/15 text-orange-600 dark:text-orange-400", emoji: "🟠" };
-  if (s >= 4) return { score: s, label: "Medium", color: "bg-yellow-500/15 text-yellow-700 dark:text-yellow-400", emoji: "🟡" };
-  return { score: s, label: "Low", color: "bg-green-500/15 text-green-700 dark:text-green-400", emoji: "🟢" };
+  if (s >= 8)
+    return {
+      score: s,
+      label: "Critical",
+      color: "bg-red-500/15 text-red-600 dark:text-red-400",
+      emoji: "🔴",
+    };
+  if (s >= 6)
+    return {
+      score: s,
+      label: "High",
+      color: "bg-orange-500/15 text-orange-600 dark:text-orange-400",
+      emoji: "🟠",
+    };
+  if (s >= 4)
+    return {
+      score: s,
+      label: "Medium",
+      color: "bg-yellow-500/15 text-yellow-700 dark:text-yellow-400",
+      emoji: "🟡",
+    };
+  return {
+    score: s,
+    label: "Low",
+    color: "bg-green-500/15 text-green-700 dark:text-green-400",
+    emoji: "🟢",
+  };
 }
 
 export const LEVELS = [
@@ -441,9 +529,7 @@ export function levelFor(points: number) {
   const idx = LEVELS.findIndex((l) => points >= l.min && points <= l.max);
   const level = LEVELS[idx];
   const next = LEVELS[idx + 1];
-  const progress = next
-    ? ((points - level.min) / (next.min - level.min)) * 100
-    : 100;
+  const progress = next ? ((points - level.min) / (next.min - level.min)) * 100 : 100;
   return { level, next, progress: Math.max(0, Math.min(100, progress)) };
 }
 
@@ -481,9 +567,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const stored = localStorage.getItem("theme") as Theme | null;
-    const system = window.matchMedia("(prefers-color-scheme: dark)").matches
-      ? "dark"
-      : "light";
+    const system = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
     const initial = stored ?? system;
     setTheme(initial);
     document.documentElement.classList.toggle("dark", initial === "dark");
@@ -498,9 +582,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  return (
-    <ThemeContext.Provider value={{ theme, toggle }}>{children}</ThemeContext.Provider>
-  );
+  return <ThemeContext.Provider value={{ theme, toggle }}>{children}</ThemeContext.Provider>;
 }
 export const useTheme = () => {
   const c = useContext(ThemeContext);
@@ -557,13 +639,16 @@ function ensureAdminProfile(profiles: Record<string, UserProfile>) {
 function ensureAdminAccount() {
   try {
     const raw = localStorage.getItem("accounts");
-    const accounts: { name: string; email: string; password: string }[] =
-      raw ? JSON.parse(raw) : [];
+    const accounts: { name: string; email: string; password: string }[] = raw
+      ? JSON.parse(raw)
+      : [];
     if (!accounts.find((a) => a.email === ADMIN_EMAIL)) {
       accounts.push({ name: ADMIN_NAME, email: ADMIN_EMAIL, password: ADMIN_PASSWORD });
       localStorage.setItem("accounts", JSON.stringify(accounts));
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -622,35 +707,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(next);
   }, []);
 
-  const updateProfile = useCallback(
-    (patch: Partial<UserProfile>) => {
-      setUser((prev) => {
-        if (!prev) return prev;
-        const next = { ...prev, ...patch };
-        const profiles = getProfiles();
-        profiles[next.email] = next;
-        saveProfiles(profiles);
-        localStorage.setItem("userName", next.name);
-        return next;
-      });
-    },
-    [],
-  );
+  const updateProfile = useCallback((patch: Partial<UserProfile>) => {
+    setUser((prev) => {
+      if (!prev) return prev;
+      const next = { ...prev, ...patch };
+      const profiles = getProfiles();
+      profiles[next.email] = next;
+      saveProfiles(profiles);
+      localStorage.setItem("userName", next.name);
+      return next;
+    });
+  }, []);
 
-  const addPoints = useCallback(
-    (n: number, reason: string) => {
-      setUser((prev) => {
-        if (!prev) return prev;
-        const next = { ...prev, points: prev.points + n };
-        const profiles = getProfiles();
-        profiles[next.email] = next;
-        saveProfiles(profiles);
-        toast.success(`${n > 0 ? "+" : ""}${n} points — ${reason}`);
-        return next;
-      });
-    },
-    [],
-  );
+  const addPoints = useCallback((n: number, reason: string) => {
+    setUser((prev) => {
+      if (!prev) return prev;
+      const next = { ...prev, points: prev.points + n };
+      const profiles = getProfiles();
+      profiles[next.email] = next;
+      saveProfiles(profiles);
+      toast.success(`${n > 0 ? "+" : ""}${n} points — ${reason}`);
+      return next;
+    });
+  }, []);
 
   const setRole = useCallback(
     (role: "user" | "authority" | "admin") => {
@@ -679,11 +758,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!p) {
       const name = localStorage.getItem("userName") || email.split("@")[0];
       p = {
-        id: email, email, name,
+        id: email,
+        email,
+        name,
         avatar: AVATAR_OPTIONS[0],
-        bio: "", city: "", points: 0,
+        bio: "",
+        city: "",
+        points: 0,
         role: email === ADMIN_EMAIL ? "admin" : "user",
-        notifyEmail: true, notifyPush: true,
+        notifyEmail: true,
+        notifyPush: true,
       };
     }
     if (email === ADMIN_EMAIL) p.role = "admin";
@@ -701,7 +785,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, hydrated, loginUser, updateProfile, addPoints, setRole, logout }}>
+    <AuthContext.Provider
+      value={{ user, hydrated, loginUser, updateProfile, addPoints, setRole, logout }}
+    >
       {children}
     </AuthContext.Provider>
   );
@@ -718,7 +804,12 @@ export const useAuth = () => {
 
 interface ReportsCtx {
   reports: Report[];
-  addReport: (r: Omit<Report, "id" | "createdAt" | "upvotes" | "downvotes" | "comments" | "spamFlags" | "status">) => Report;
+  addReport: (
+    r: Omit<
+      Report,
+      "id" | "createdAt" | "upvotes" | "downvotes" | "comments" | "spamFlags" | "status"
+    >,
+  ) => Report;
   upvote: (id: string, userId: string) => { wasUpvoted: boolean; wasDownvoted: boolean };
   downvote: (id: string, userId: string) => { wasUpvoted: boolean; wasDownvoted: boolean };
   flagSpam: (id: string, userId: string) => void;
@@ -898,19 +989,28 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     if (existing.length === 0) {
       const seed: Notification[] = [
         {
-          id: "n_seed_1", type: "system", title: "Welcome to IssueSnap",
+          id: "n_seed_1",
+          type: "system",
+          title: "Welcome to IssueSnap",
           body: "Report your first issue to earn 10 points!",
-          at: Date.now() - 1000 * 60 * 5, read: false,
+          at: Date.now() - 1000 * 60 * 5,
+          read: false,
         },
         {
-          id: "n_seed_2", type: "verified", title: "Sample: Report verified",
+          id: "n_seed_2",
+          type: "verified",
+          title: "Sample: Report verified",
           body: "Your sample pothole report was verified by an authority.",
-          at: Date.now() - 1000 * 60 * 60, read: false,
+          at: Date.now() - 1000 * 60 * 60,
+          read: false,
         },
         {
-          id: "n_seed_3", type: "upvote", title: "Sample: Someone upvoted your report",
+          id: "n_seed_3",
+          type: "upvote",
+          title: "Sample: Someone upvoted your report",
           body: "A neighbor supported your issue.",
-          at: Date.now() - 1000 * 60 * 60 * 24, read: true,
+          at: Date.now() - 1000 * 60 * 60 * 24,
+          read: true,
         },
       ];
       save("notifications", seed);
@@ -994,52 +1094,204 @@ export function timeAgo(ts: number) {
  * ========================================================================= */
 
 export const INDIA_STATES = [
-  "Andhra Pradesh","Arunachal Pradesh","Assam","Bihar","Chhattisgarh",
-  "Goa","Gujarat","Haryana","Himachal Pradesh","Jharkhand","Karnataka",
-  "Kerala","Madhya Pradesh","Maharashtra","Manipur","Meghalaya","Mizoram",
-  "Nagaland","Odisha","Punjab","Rajasthan","Sikkim","Tamil Nadu","Telangana",
-  "Tripura","Uttar Pradesh","Uttarakhand","West Bengal",
-  "Andaman and Nicobar Islands","Chandigarh","Dadra and Nagar Haveli and Daman and Diu",
-  "Delhi","Jammu and Kashmir","Ladakh","Lakshadweep","Puducherry",
+  "Andhra Pradesh",
+  "Arunachal Pradesh",
+  "Assam",
+  "Bihar",
+  "Chhattisgarh",
+  "Goa",
+  "Gujarat",
+  "Haryana",
+  "Himachal Pradesh",
+  "Jharkhand",
+  "Karnataka",
+  "Kerala",
+  "Madhya Pradesh",
+  "Maharashtra",
+  "Manipur",
+  "Meghalaya",
+  "Mizoram",
+  "Nagaland",
+  "Odisha",
+  "Punjab",
+  "Rajasthan",
+  "Sikkim",
+  "Tamil Nadu",
+  "Telangana",
+  "Tripura",
+  "Uttar Pradesh",
+  "Uttarakhand",
+  "West Bengal",
+  "Andaman and Nicobar Islands",
+  "Chandigarh",
+  "Dadra and Nagar Haveli and Daman and Diu",
+  "Delhi",
+  "Jammu and Kashmir",
+  "Ladakh",
+  "Lakshadweep",
+  "Puducherry",
 ];
 
 export const INDIA_CITIES_BY_STATE: Record<string, string[]> = {
-  "Andhra Pradesh": ["Visakhapatnam","Vijayawada","Guntur","Nellore","Kurnool","Rajahmundry","Tirupati","Kakinada","Kadapa","Anantapur"],
-  "Arunachal Pradesh": ["Itanagar","Naharlagun","Pasighat","Ziro","Bomdila"],
-  "Assam": ["Guwahati","Silchar","Dibrugarh","Jorhat","Nagaon","Tinsukia","Tezpur"],
-  "Bihar": ["Patna","Gaya","Muzaffarpur","Bhagalpur","Darbhanga","Purnia","Arrah","Begusarai"],
-  "Chhattisgarh": ["Raipur","Bhilai","Bilaspur","Durg","Korba","Rajnandgaon"],
-  "Goa": ["Panaji","Margao","Vasco da Gama","Mapusa","Ponda"],
-  "Gujarat": ["Ahmedabad","Surat","Vadodara","Rajkot","Bhavnagar","Jamnagar","Gandhinagar","Anand","Nadiad"],
-  "Haryana": ["Faridabad","Gurgaon","Panipat","Ambala","Yamunanagar","Rohtak","Hisar","Karnal","Sonipat"],
-  "Himachal Pradesh": ["Shimla","Mandi","Solan","Dharamshala","Baddi","Palampur"],
-  "Jharkhand": ["Ranchi","Jamshedpur","Dhanbad","Bokaro","Deoghar","Hazaribagh","Giridih"],
-  "Karnataka": ["Bengaluru","Hubli","Mysuru","Mangaluru","Belagavi","Davangere","Ballari","Vijayapura","Shivamogga"],
-  "Kerala": ["Thiruvananthapuram","Kochi","Kozhikode","Thrissur","Kollam","Palakkad","Alappuzha","Malappuram"],
-  "Madhya Pradesh": ["Bhopal","Indore","Jabalpur","Gwalior","Ujjain","Sagar","Dewas","Satna","Ratlam"],
-  "Maharashtra": ["Mumbai","Pune","Nagpur","Thane","Nashik","Aurangabad","Solapur","Navi Mumbai","Kolhapur","Amravati"],
-  "Manipur": ["Imphal","Thoubal","Bishnupur","Churachandpur"],
-  "Meghalaya": ["Shillong","Tura","Jowai","Nongstoin"],
-  "Mizoram": ["Aizawl","Lunglei","Saiha"],
-  "Nagaland": ["Kohima","Dimapur","Mokokchung"],
-  "Odisha": ["Bhubaneswar","Cuttack","Rourkela","Brahmapur","Sambalpur","Puri","Balasore"],
-  "Punjab": ["Ludhiana","Amritsar","Jalandhar","Patiala","Bathinda","Mohali","Hoshiarpur"],
-  "Rajasthan": ["Jaipur","Jodhpur","Kota","Bikaner","Ajmer","Udaipur","Bhilwara","Alwar","Sikar"],
-  "Sikkim": ["Gangtok","Namchi","Mangan"],
-  "Tamil Nadu": ["Chennai","Coimbatore","Madurai","Tiruchirappalli","Salem","Tirunelveli","Tiruppur","Vellore","Erode"],
-  "Telangana": ["Hyderabad","Warangal","Nizamabad","Khammam","Karimnagar","Ramagundam","Mahbubnagar"],
-  "Tripura": ["Agartala","Dharmanagar","Udaipur","Kailasahar"],
-  "Uttar Pradesh": ["Lucknow","Kanpur","Varanasi","Agra","Meerut","Allahabad","Ghaziabad","Noida","Bareilly","Aligarh","Moradabad","Saharanpur","Gorakhpur","Faizabad"],
-  "Uttarakhand": ["Dehradun","Haridwar","Roorkee","Haldwani","Rudrapur","Kashipur","Rishikesh"],
-  "West Bengal": ["Kolkata","Asansol","Siliguri","Durgapur","Bardhaman","Malda","Baharampur","Habra"],
+  "Andhra Pradesh": [
+    "Visakhapatnam",
+    "Vijayawada",
+    "Guntur",
+    "Nellore",
+    "Kurnool",
+    "Rajahmundry",
+    "Tirupati",
+    "Kakinada",
+    "Kadapa",
+    "Anantapur",
+  ],
+  "Arunachal Pradesh": ["Itanagar", "Naharlagun", "Pasighat", "Ziro", "Bomdila"],
+  Assam: ["Guwahati", "Silchar", "Dibrugarh", "Jorhat", "Nagaon", "Tinsukia", "Tezpur"],
+  Bihar: ["Patna", "Gaya", "Muzaffarpur", "Bhagalpur", "Darbhanga", "Purnia", "Arrah", "Begusarai"],
+  Chhattisgarh: ["Raipur", "Bhilai", "Bilaspur", "Durg", "Korba", "Rajnandgaon"],
+  Goa: ["Panaji", "Margao", "Vasco da Gama", "Mapusa", "Ponda"],
+  Gujarat: [
+    "Ahmedabad",
+    "Surat",
+    "Vadodara",
+    "Rajkot",
+    "Bhavnagar",
+    "Jamnagar",
+    "Gandhinagar",
+    "Anand",
+    "Nadiad",
+  ],
+  Haryana: [
+    "Faridabad",
+    "Gurgaon",
+    "Panipat",
+    "Ambala",
+    "Yamunanagar",
+    "Rohtak",
+    "Hisar",
+    "Karnal",
+    "Sonipat",
+  ],
+  "Himachal Pradesh": ["Shimla", "Mandi", "Solan", "Dharamshala", "Baddi", "Palampur"],
+  Jharkhand: ["Ranchi", "Jamshedpur", "Dhanbad", "Bokaro", "Deoghar", "Hazaribagh", "Giridih"],
+  Karnataka: [
+    "Bengaluru",
+    "Hubli",
+    "Mysuru",
+    "Mangaluru",
+    "Belagavi",
+    "Davangere",
+    "Ballari",
+    "Vijayapura",
+    "Shivamogga",
+  ],
+  Kerala: [
+    "Thiruvananthapuram",
+    "Kochi",
+    "Kozhikode",
+    "Thrissur",
+    "Kollam",
+    "Palakkad",
+    "Alappuzha",
+    "Malappuram",
+  ],
+  "Madhya Pradesh": [
+    "Bhopal",
+    "Indore",
+    "Jabalpur",
+    "Gwalior",
+    "Ujjain",
+    "Sagar",
+    "Dewas",
+    "Satna",
+    "Ratlam",
+  ],
+  Maharashtra: [
+    "Mumbai",
+    "Pune",
+    "Nagpur",
+    "Thane",
+    "Nashik",
+    "Aurangabad",
+    "Solapur",
+    "Navi Mumbai",
+    "Kolhapur",
+    "Amravati",
+  ],
+  Manipur: ["Imphal", "Thoubal", "Bishnupur", "Churachandpur"],
+  Meghalaya: ["Shillong", "Tura", "Jowai", "Nongstoin"],
+  Mizoram: ["Aizawl", "Lunglei", "Saiha"],
+  Nagaland: ["Kohima", "Dimapur", "Mokokchung"],
+  Odisha: ["Bhubaneswar", "Cuttack", "Rourkela", "Brahmapur", "Sambalpur", "Puri", "Balasore"],
+  Punjab: ["Ludhiana", "Amritsar", "Jalandhar", "Patiala", "Bathinda", "Mohali", "Hoshiarpur"],
+  Rajasthan: [
+    "Jaipur",
+    "Jodhpur",
+    "Kota",
+    "Bikaner",
+    "Ajmer",
+    "Udaipur",
+    "Bhilwara",
+    "Alwar",
+    "Sikar",
+  ],
+  Sikkim: ["Gangtok", "Namchi", "Mangan"],
+  "Tamil Nadu": [
+    "Chennai",
+    "Coimbatore",
+    "Madurai",
+    "Tiruchirappalli",
+    "Salem",
+    "Tirunelveli",
+    "Tiruppur",
+    "Vellore",
+    "Erode",
+  ],
+  Telangana: [
+    "Hyderabad",
+    "Warangal",
+    "Nizamabad",
+    "Khammam",
+    "Karimnagar",
+    "Ramagundam",
+    "Mahbubnagar",
+  ],
+  Tripura: ["Agartala", "Dharmanagar", "Udaipur", "Kailasahar"],
+  "Uttar Pradesh": [
+    "Lucknow",
+    "Kanpur",
+    "Varanasi",
+    "Agra",
+    "Meerut",
+    "Allahabad",
+    "Ghaziabad",
+    "Noida",
+    "Bareilly",
+    "Aligarh",
+    "Moradabad",
+    "Saharanpur",
+    "Gorakhpur",
+    "Faizabad",
+  ],
+  Uttarakhand: ["Dehradun", "Haridwar", "Roorkee", "Haldwani", "Rudrapur", "Kashipur", "Rishikesh"],
+  "West Bengal": [
+    "Kolkata",
+    "Asansol",
+    "Siliguri",
+    "Durgapur",
+    "Bardhaman",
+    "Malda",
+    "Baharampur",
+    "Habra",
+  ],
   "Andaman and Nicobar Islands": ["Port Blair"],
-  "Chandigarh": ["Chandigarh"],
-  "Dadra and Nagar Haveli and Daman and Diu": ["Daman","Diu","Silvassa"],
-  "Delhi": ["New Delhi","Delhi"],
-  "Jammu and Kashmir": ["Srinagar","Jammu","Anantnag","Sopore","Kathua"],
-  "Ladakh": ["Leh","Kargil"],
-  "Lakshadweep": ["Kavaratti"],
-  "Puducherry": ["Puducherry","Karaikal","Mahe","Yanam"],
+  Chandigarh: ["Chandigarh"],
+  "Dadra and Nagar Haveli and Daman and Diu": ["Daman", "Diu", "Silvassa"],
+  Delhi: ["New Delhi", "Delhi"],
+  "Jammu and Kashmir": ["Srinagar", "Jammu", "Anantnag", "Sopore", "Kathua"],
+  Ladakh: ["Leh", "Kargil"],
+  Lakshadweep: ["Kavaratti"],
+  Puducherry: ["Puducherry", "Karaikal", "Mahe", "Yanam"],
 };
 
 /** Basic Indian pincode validation: 6 digits, first digit 1-9 */

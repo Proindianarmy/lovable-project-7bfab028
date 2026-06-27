@@ -1,6 +1,17 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { AppShell, StatusBadge, SeverityBadge } from "@/components/AppShell";
-import { Flag, Wrench, Check, MapPin, ThumbsUp, ThumbsDown, Send, AlertTriangle, Sparkles, X } from "lucide-react";
+import {
+  Flag,
+  Wrench,
+  Check,
+  MapPin,
+  ThumbsUp,
+  ThumbsDown,
+  Send,
+  AlertTriangle,
+  Sparkles,
+  X,
+} from "lucide-react";
 import { requireAuth } from "@/lib/auth-guard";
 import { useReports, useAuth, computeRating, timeAgo, censorText } from "@/lib/store";
 import { useRef, useState } from "react";
@@ -38,7 +49,9 @@ function IssueDetail() {
       <AppShell>
         <p className="text-muted-foreground">
           Issue not found.{" "}
-          <Link to="/feed" className="text-primary underline">Back to feed</Link>
+          <Link to="/feed" className="text-primary underline">
+            Back to feed
+          </Link>
         </p>
       </AppShell>
     );
@@ -104,27 +117,35 @@ function IssueDetail() {
     }
   };
 
-  const allPhotos = issue.photos && issue.photos.length > 0 ? issue.photos : issue.image ? [issue.image] : [];
+  const allPhotos =
+    issue.photos && issue.photos.length > 0 ? issue.photos : issue.image ? [issue.image] : [];
 
   return (
     <AppShell>
       <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
         <h1 className="text-2xl font-bold">{issue.title}</h1>
-        <Link to="/feed" className="text-sm text-primary hover:underline">← Back to feed</Link>
+        <Link to="/feed" className="text-sm text-primary hover:underline">
+          ← Back to feed
+        </Link>
       </div>
 
       <div className="flex flex-wrap gap-2 mb-6">
         <StatusBadge status={issue.status} />
         <SeverityBadge severity={issue.urgency} />
         <span className="badge-pill bg-muted text-muted-foreground">{issue.category}</span>
-        <span className={`badge-pill ${rating.color}`}>{rating.emoji} {rating.label} · {rating.score}/10</span>
+        <span className={`badge-pill ${rating.color}`}>
+          {rating.emoji} {rating.label} · {rating.score}/10
+        </span>
       </div>
 
       {isHeavilyFlagged && !showCensored ? (
         <div className="bg-card border border-border rounded-2xl p-8 text-center">
           <AlertTriangle className="w-10 h-10 mx-auto text-yellow-500 mb-3" />
           <p className="font-semibold">This content has been flagged for review.</p>
-          <button onClick={() => setShowCensored(true)} className="mt-4 px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm">
+          <button
+            onClick={() => setShowCensored(true)}
+            className="mt-4 px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm"
+          >
             Show anyway
           </button>
         </div>
@@ -140,11 +161,20 @@ function IssueDetail() {
                   const Icon = step.icon;
                   const active = issue.status === step.label;
                   return (
-                    <li key={step.label} className="relative flex flex-col items-center text-center w-20 z-10">
-                      <div className={`w-10 h-10 grid place-items-center rounded-full border-2 bg-card ${active ? "border-primary text-primary" : "border-border text-muted-foreground"}`}>
+                    <li
+                      key={step.label}
+                      className="relative flex flex-col items-center text-center w-20 z-10"
+                    >
+                      <div
+                        className={`w-10 h-10 grid place-items-center rounded-full border-2 bg-card ${active ? "border-primary text-primary" : "border-border text-muted-foreground"}`}
+                      >
                         <Icon className="w-5 h-5" />
                       </div>
-                      <div className={`mt-2 text-xs font-semibold ${active ? "text-primary" : "text-muted-foreground"}`}>{step.label}</div>
+                      <div
+                        className={`mt-2 text-xs font-semibold ${active ? "text-primary" : "text-muted-foreground"}`}
+                      >
+                        {step.label}
+                      </div>
                     </li>
                   );
                 })}
@@ -155,10 +185,16 @@ function IssueDetail() {
             {allPhotos.length > 0 && (
               <div className="bg-card border border-border rounded-2xl p-5">
                 <h2 className="font-bold mb-3">Photos ({allPhotos.length})</h2>
-                <div className={`grid gap-2 ${allPhotos.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
+                <div
+                  className={`grid gap-2 ${allPhotos.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}
+                >
                   {allPhotos.map((src, i) => (
-                    <img key={i} src={src} alt={`Photo ${i + 1}`}
-                      className="w-full rounded-xl object-cover max-h-[300px]" />
+                    <img
+                      key={i}
+                      src={src}
+                      alt={`Photo ${i + 1}`}
+                      className="w-full rounded-xl object-cover max-h-[300px]"
+                    />
                   ))}
                 </div>
                 {issue.aiTags && issue.aiTags.length > 0 && (
@@ -166,10 +202,14 @@ function IssueDetail() {
                     <Sparkles className="w-4 h-4 text-primary shrink-0" />
                     <span className="text-sm font-medium">AI detected:</span>
                     {issue.aiTags.map((t) => (
-                      <span key={t} className="badge-pill bg-muted">{t}</span>
+                      <span key={t} className="badge-pill bg-muted">
+                        {t}
+                      </span>
                     ))}
                     {issue.aiConfidence != null && (
-                      <span className="badge-pill bg-primary text-primary-foreground">{issue.aiConfidence}%</span>
+                      <span className="badge-pill bg-primary text-primary-foreground">
+                        {issue.aiConfidence}%
+                      </span>
                     )}
                   </div>
                 )}
@@ -181,7 +221,8 @@ function IssueDetail() {
               <h3 className="font-bold mb-2">Description</h3>
               <p className="text-sm whitespace-pre-wrap leading-relaxed">{issue.description}</p>
               <p className="text-xs text-muted-foreground mt-4">
-                Reported by {issue.reporterAvatar ?? "👤"} {issue.reporterName} · {timeAgo(issue.createdAt)}
+                Reported by {issue.reporterAvatar ?? "👤"} {issue.reporterName} ·{" "}
+                {timeAgo(issue.createdAt)}
               </p>
             </div>
 
@@ -189,7 +230,9 @@ function IssueDetail() {
             <div className="bg-card border border-border rounded-2xl p-5">
               <h3 className="font-bold mb-4">Comments ({issue.comments.length})</h3>
               {issue.comments.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-4 text-center">No comments yet. Be the first!</p>
+                <p className="text-sm text-muted-foreground py-4 text-center">
+                  No comments yet. Be the first!
+                </p>
               ) : (
                 <ul className="divide-y divide-border mb-4">
                   {issue.comments.map((c) => (
@@ -226,7 +269,9 @@ function IssueDetail() {
                   <Send className="w-3.5 h-3.5" /> Post
                 </button>
               </div>
-              <p className="text-[10px] text-muted-foreground mt-1">+1 XP per comment · 5s cooldown</p>
+              <p className="text-[10px] text-muted-foreground mt-1">
+                +1 XP per comment · 5s cooldown
+              </p>
             </div>
           </div>
 
@@ -262,28 +307,37 @@ function IssueDetail() {
                   onClick={handleUpvote}
                   title={upvoted ? "Remove upvote (−2 XP)" : "Upvote (+2 XP)"}
                   className={`w-full py-2.5 rounded-xl font-semibold flex items-center justify-center gap-2 transition-colors text-sm ${
-                    upvoted ? "bg-primary text-primary-foreground" : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                    upvoted
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
                   }`}
                 >
-                  <ThumbsUp className="w-4 h-4" /> {upvoted ? "Upvoted" : "Upvote"} ({issue.upvotes.length})
+                  <ThumbsUp className="w-4 h-4" /> {upvoted ? "Upvoted" : "Upvote"} (
+                  {issue.upvotes.length})
                 </button>
                 <button
                   onClick={handleDownvote}
                   title={downvoted ? "Remove downvote (+2 XP)" : "Downvote (−2 XP)"}
                   className={`w-full py-2.5 rounded-xl font-semibold flex items-center justify-center gap-2 transition-colors text-sm ${
-                    downvoted ? "bg-destructive text-destructive-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"
+                    downvoted
+                      ? "bg-destructive text-destructive-foreground"
+                      : "bg-muted text-muted-foreground hover:bg-muted/80"
                   }`}
                 >
-                  <ThumbsDown className="w-4 h-4" /> {downvoted ? "Downvoted" : "Downvote"} ({(issue.downvotes ?? []).length})
+                  <ThumbsDown className="w-4 h-4" /> {downvoted ? "Downvoted" : "Downvote"} (
+                  {(issue.downvotes ?? []).length})
                 </button>
               </div>
               <p className="text-xs text-center text-muted-foreground mt-2">
-                Net score: {(() => {
+                Net score:{" "}
+                {(() => {
                   const net = issue.upvotes.length - (issue.downvotes?.length ?? 0);
                   return net > 0 ? `+${net}` : net;
                 })()}
               </p>
-              <p className="text-[10px] text-center text-muted-foreground">3s cooldown between votes</p>
+              <p className="text-[10px] text-center text-muted-foreground">
+                3s cooldown between votes
+              </p>
             </div>
           </aside>
         </div>

@@ -25,7 +25,10 @@ function Dashboard() {
         <Card title="My Reports" className="lg:col-span-2">
           {mine.length === 0 ? (
             <Empty message="You haven't submitted any reports yet.">
-              <Link to="/report" className="inline-flex items-center gap-1.5 mt-3 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm">
+              <Link
+                to="/report"
+                className="inline-flex items-center gap-1.5 mt-3 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm"
+              >
                 <PlusCircle className="w-4 h-4" /> Report your first issue
               </Link>
             </Empty>
@@ -36,12 +39,20 @@ function Dashboard() {
                 return (
                   <li key={r.id} className="py-3 flex items-center gap-3">
                     <div className="flex-1 min-w-0">
-                      <Link to="/issue/$id" params={{ id: r.id }} className="font-medium truncate hover:underline">
+                      <Link
+                        to="/issue/$id"
+                        params={{ id: r.id }}
+                        className="font-medium truncate hover:underline"
+                      >
                         {r.title}
                       </Link>
-                      <div className="text-xs text-muted-foreground">{r.category} · {timeAgo(r.createdAt)}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {r.category} · {timeAgo(r.createdAt)}
+                      </div>
                     </div>
-                    <span className={`badge-pill ${rating.color}`}>{rating.emoji} {rating.score}/10</span>
+                    <span className={`badge-pill ${rating.color}`}>
+                      {rating.emoji} {rating.score}/10
+                    </span>
                     <StatusBadge status={r.status} />
                   </li>
                 );
@@ -60,9 +71,14 @@ function Dashboard() {
             <div className="h-full bg-primary" style={{ width: `${lvl.progress}%` }} />
           </div>
           <p className="text-xs text-muted-foreground mt-2">
-            {lvl.next ? `${lvl.next.min - user.points} pts to ${lvl.next.name}` : "Max level reached!"}
+            {lvl.next
+              ? `${lvl.next.min - user.points} pts to ${lvl.next.name}`
+              : "Max level reached!"}
           </p>
-          <Link to="/leaderboard" className="mt-4 flex items-center gap-1.5 text-sm text-primary hover:underline">
+          <Link
+            to="/leaderboard"
+            className="mt-4 flex items-center gap-1.5 text-sm text-primary hover:underline"
+          >
             <Trophy className="w-4 h-4" /> View leaderboard
           </Link>
         </Card>
@@ -80,10 +96,14 @@ function Dashboard() {
                   className="block rounded-xl border border-border p-4 hover:bg-muted/40"
                 >
                   <p className="font-semibold truncate">{r.title}</p>
-                  <p className="text-xs text-muted-foreground mt-1">{r.category} · {timeAgo(r.createdAt)}</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {r.category} · {timeAgo(r.createdAt)}
+                  </p>
                   <div className="mt-2 flex items-center gap-2">
                     <StatusBadge status={r.status} />
-                    <span className="text-xs text-muted-foreground">{r.upvotes.length} upvotes</span>
+                    <span className="text-xs text-muted-foreground">
+                      {r.upvotes.length} upvotes
+                    </span>
                   </div>
                 </Link>
               ))}
@@ -105,7 +125,15 @@ function Empty({ message, children }: { message: string; children?: React.ReactN
   );
 }
 
-function Card({ title, children, className = "" }: { title: string; children: React.ReactNode; className?: string }) {
+function Card({
+  title,
+  children,
+  className = "",
+}: {
+  title: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
   return (
     <section className={`bg-card border border-border rounded-2xl p-6 shadow-sm ${className}`}>
       <h2 className="font-bold text-lg mb-4">{title}</h2>

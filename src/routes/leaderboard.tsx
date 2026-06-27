@@ -43,10 +43,16 @@ function Leaderboard() {
   const { user } = useAuth();
 
   const board = useMemo(() => {
-    const map = new Map<string, {
-      name: string; avatar?: string;
-      reports: number; upvotes: number; points: number;
-    }>();
+    const map = new Map<
+      string,
+      {
+        name: string;
+        avatar?: string;
+        reports: number;
+        upvotes: number;
+        points: number;
+      }
+    >();
 
     reports.forEach((r) => {
       const cur = map.get(r.reporterId) ?? {
@@ -72,7 +78,7 @@ function Leaderboard() {
         points: 0,
       };
       cur.points = Math.max(cur.points, user.points);
-      cur.avatar = user.avatar;  // always use latest avatar
+      cur.avatar = user.avatar; // always use latest avatar
       cur.name = user.name;
       map.set(user.id, cur);
     }
@@ -109,10 +115,15 @@ function Leaderboard() {
                 >
                   {/* Rank */}
                   <div className="w-10 flex justify-center font-bold text-lg shrink-0">
-                    {i === 0 ? <Medal className="w-6 h-6 text-yellow-500" /> :
-                     i === 1 ? <Medal className="w-6 h-6 text-gray-400" /> :
-                     i === 2 ? <Medal className="w-6 h-6 text-orange-600" /> :
-                     <span className="text-sm text-muted-foreground">#{i + 1}</span>}
+                    {i === 0 ? (
+                      <Medal className="w-6 h-6 text-yellow-500" />
+                    ) : i === 1 ? (
+                      <Medal className="w-6 h-6 text-gray-400" />
+                    ) : i === 2 ? (
+                      <Medal className="w-6 h-6 text-orange-600" />
+                    ) : (
+                      <span className="text-sm text-muted-foreground">#{i + 1}</span>
+                    )}
                   </div>
 
                   {/* Avatar — safe render */}

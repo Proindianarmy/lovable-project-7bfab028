@@ -28,7 +28,10 @@ function NotificationsPage() {
       <div className="bg-card border border-border rounded-2xl divide-y divide-border">
         <div className="flex items-center justify-between px-5 py-3">
           <span className="text-sm text-muted-foreground">{unread} unread</span>
-          <button onClick={markAllRead} className="text-sm text-primary flex items-center gap-1 hover:underline">
+          <button
+            onClick={markAllRead}
+            className="text-sm text-primary flex items-center gap-1 hover:underline"
+          >
             <CheckCheck className="w-4 h-4" /> Mark all as read
           </button>
         </div>

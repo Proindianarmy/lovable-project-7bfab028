@@ -1,13 +1,32 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
-  LayoutDashboard, PlusCircle, ListChecks, Map, Bell, Trophy, Settings,
-  BarChart3, Shield, Sun, Moon, LogOut, User, Check, X,
+  LayoutDashboard,
+  PlusCircle,
+  ListChecks,
+  Map,
+  Bell,
+  Trophy,
+  Settings,
+  BarChart3,
+  Shield,
+  Sun,
+  Moon,
+  LogOut,
+  User,
+  Check,
+  X,
 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useAuth, useNotifications, useTheme, timeAgo } from "@/lib/store";
 import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
 // Nav items — analytics/authority only shown for admin role (handled in render)
@@ -80,7 +99,9 @@ function NotifBell() {
             </div>
           </div>
           {notifications.length === 0 ? (
-            <div className="p-6 text-center text-sm text-muted-foreground">No notifications yet.</div>
+            <div className="p-6 text-center text-sm text-muted-foreground">
+              No notifications yet.
+            </div>
           ) : (
             <ul>
               {notifications.map((n) => (
@@ -97,7 +118,9 @@ function NotifBell() {
                       <p className="text-xs text-muted-foreground mt-0.5">{n.body}</p>
                       <p className="text-[10px] text-muted-foreground mt-1">{timeAgo(n.at)}</p>
                     </div>
-                    {!n.read && <span className="w-2 h-2 rounded-full bg-primary mt-1.5 shrink-0" />}
+                    {!n.read && (
+                      <span className="w-2 h-2 rounded-full bg-primary mt-1.5 shrink-0" />
+                    )}
                   </div>
                 </li>
               ))}
@@ -171,7 +194,10 @@ function UserMenu() {
               <User className="w-4 h-4" /> Profile & Settings
             </Link>
             <button
-              onClick={() => { setOpen(false); setConfirm(true); }}
+              onClick={() => {
+                setOpen(false);
+                setConfirm(true);
+              }}
               className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-destructive hover:bg-muted"
             >
               <LogOut className="w-4 h-4" /> Log out
