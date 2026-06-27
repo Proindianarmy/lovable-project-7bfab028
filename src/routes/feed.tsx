@@ -88,7 +88,7 @@ function Feed() {
   if (search.range && search.range !== "all") activeChips.push({ label: `Range: ${search.range}`, clear: () => setParam({ range: "all" }) });
   if (search.q) activeChips.push({ label: `Search: "${search.q}"`, clear: () => setParam({ q: "" }) });
 
-  const handleUpvote = (reportId: string, isUpvoted: boolean) => {
+  const handleUpvote = (reportId: string) => {
     if (!user) return;
     const key = `up_${reportId}`;
     const now = Date.now();
@@ -236,7 +236,7 @@ function Feed() {
                 <div className="flex items-center gap-2 mt-3 pt-3 border-t border-border">
                   {/* Upvote */}
                   <button
-                    onClick={() => handleUpvote(r.id, upvoted)}
+                    onClick={() => handleUpvote(r.id)}
                     title={upvoted ? "Remove upvote (−2 XP)" : "Upvote (+2 XP)"}
                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm transition-colors ${
                       upvoted ? "bg-primary text-primary-foreground" : "bg-muted hover:bg-muted/70"

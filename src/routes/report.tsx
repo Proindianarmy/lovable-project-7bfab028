@@ -37,7 +37,11 @@ function InteractiveMap({
   const mapDivRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
   const markerRef = useRef<any>(null);
+  const onPinRef = useRef(onPin);
   const [ready, setReady] = useState(false);
+
+  // Keep onPinRef in sync without triggering re-runs
+  useEffect(() => { onPinRef.current = onPin; });
 
   // Load Leaflet CSS + JS from CDN once
   useEffect(() => {
@@ -84,7 +88,7 @@ function InteractiveMap({
       marker.bindPopup("📍 Drag to adjust").openPopup();
       marker.on("dragend", (e: any) => {
         const pos = e.target.getLatLng();
-        onPin(pos.lat, pos.lng);
+        onPinRef.current(pos.lat, pos.lng);
       });
       markerRef.current = marker;
     }
@@ -99,11 +103,11 @@ function InteractiveMap({
         marker.bindPopup("📍 Drag to adjust").openPopup();
         marker.on("dragend", (ev: any) => {
           const pos = ev.target.getLatLng();
-          onPin(pos.lat, pos.lng);
+          onPinRef.current(pos.lat, pos.lng);
         });
         markerRef.current = marker;
       }
-      onPin(clickLat, clickLng);
+      onPinRef.current(clickLat, clickLng);
     });
 
     mapRef.current = map;
@@ -128,7 +132,7 @@ function InteractiveMap({
       const marker = L.marker([lat, lng], { draggable: true, icon }).addTo(map);
       marker.on("dragend", (e: any) => {
         const pos = e.target.getLatLng();
-        onPin(pos.lat, pos.lng);
+        onPinRef.current(pos.lat, pos.lng);
       });
       markerRef.current = marker;
     }
@@ -410,7 +414,7 @@ function Report() {
             {photos.length < MAX_PHOTOS && (
               <label className="aspect-square rounded-lg border-2 border-dashed border-border bg-muted/30 flex flex-col items-center justify-center cursor-pointer hover:bg-muted/50 transition-colors">
                 <input type="file" accept="image/*" multiple className="hidden"
-                  onChange={(e) => { if (e.target.files?.length) handleImages(e.target.files); e.target.value = ""; }} />
+                  onChange={(e) => { if (e.target.files?.length) handleImages(e.target.files!); e.target.value = ""; }} />
                 <ImagePlus className="w-7 h-7 text-muted-foreground" />
                 <span className="text-[10px] text-muted-foreground mt-1">Add Photo</span>
               </label>

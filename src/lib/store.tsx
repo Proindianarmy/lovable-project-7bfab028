@@ -165,15 +165,219 @@ const AI_CATEGORY_TAGS: Record<Category, string[]> = {
 };
 
 /**
- * AI / hand-drawn image detection using canvas pixel analysis.
- * Flags images that are AI-generated, illustrated, or hand-drawn.
- * Real camera photos and screenshots of real places pass through.
+ * AI / hand-drawn image detection.
  *
- * Strategy: sample the image at TWO sizes (large for diversity, small for
- * local structure), then combine 5 independent signals. Each signal is
- * calibrated separately so a single false positive can't trigger rejection.
- * Requires 3 of 5 signals to fire before flagging.
+ * Strategy: Use Sightengine API (free tier: 500 ops/month) when the key is
+ * available, otherwise fall back to an enhanced canvas-based classifier.
+ *
+ * To enable the real API:
+ *   1. Sign up free at https://sightengine.com
+ *   2. Add to your .env:  VITE_SIGHTENGINE_USER=xxx  VITE_SIGHTENGINE_SECRET=xxx
+ *   3. The detection will automatically use the real API.
+ *
+ * Without the key the fallback uses an aggressive multi-scale pixel classifier
+ * that catches the most obvious cases (solid fills, perfect gradients, cartoons).
  */
+
+/* ── Helper: convert dataUrl to a Blob for multipart upload ── */
+function dataUrlToBlob(dataUrl: string): Blob {
+  const [header, b64] = dataUrl.split(",");
+  const mime = header.match(/:(.*?);/)?.[1] ?? "image/jpeg";
+  const binary = atob(b64);
+  const arr = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i);
+  return new Blob([arr], { type: mime });
+}
+
+/* ── Real API detection via Sightengine ── */
+async function detectViaSightengine(dataUrl: string): Promise<{
+  isAIGenerated: boolean;
+  aiGeneratedConfidence: number;
+}> {
+  const user   = (import.meta.env?.VITE_SIGHTENGINE_USER   ?? "").trim();
+  const secret = (import.meta.env?.VITE_SIGHTENGINE_SECRET ?? "").trim();
+  if (!user || !secret) throw new Error("no-key");
+
+  const fd = new FormData();
+  fd.append("media",   dataUrlToBlob(dataUrl), "image.jpg");
+  fd.append("models",  "genai");
+  fd.append("api_user", user);
+  fd.append("api_secret", secret);
+
+  const res  = await fetch("https://api.sightengine.com/1.0/check.json", { method: "POST", body: fd });
+  const json = await res.json() as {
+    status: string;
+    type?: { ai_generated?: number };
+  };
+
+  if (json.status !== "success") throw new Error("api-error");
+
+  const score = json.type?.ai_generated ?? 0;   // 0.0 – 1.0
+  return {
+    isAIGenerated: score >= 0.65,
+    aiGeneratedConfidence: Math.round(score * 100),
+  };
+}
+
+/* ── Fallback: aggressive canvas-based classifier ── */
+async function detectViaCanvas(dataUrl: string): Promise<{
+  isAIGenerated: boolean;
+  aiGeneratedConfidence: number;
+}> {
+  return new Promise((resolve) => {
+    const img = new Image();
+
+    img.onload = () => {
+      try {
+        /* ── Pass 1: 128×128 — colour diversity & smoothness ── */
+        const P1 = 128;
+        const c1 = document.createElement("canvas");
+        c1.width = c1.height = P1;
+        const x1 = c1.getContext("2d");
+        if (!x1) { resolve({ isAIGenerated: false, aiGeneratedConfidence: 0 }); return; }
+        x1.drawImage(img, 0, 0, P1, P1);
+        const d1 = x1.getImageData(0, 0, P1, P1).data;
+
+        const colourSet4  = new Set<number>(); // 4-bit per channel (4096 buckets)
+        const colourSet6  = new Set<number>(); // 6-bit per channel (262144 buckets)
+        let flat = 0, soft = 0, hard = 0, pairs = 0;
+        let rSum = 0, gSum = 0, bSum = 0;
+
+        for (let y = 0; y < P1; y++) {
+          for (let x = 0; x < P1; x++) {
+            const i = (y * P1 + x) * 4;
+            const r = d1[i], g = d1[i+1], b = d1[i+2];
+            rSum += r; gSum += g; bSum += b;
+            colourSet4.add(((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4));
+            colourSet6.add(((r >> 2) << 12) | ((g >> 2) << 6) | (b >> 2));
+
+            // horizontal neighbour
+            if (x < P1 - 1) {
+              const j = i + 4;
+              const d = Math.abs(r - d1[j]) + Math.abs(g - d1[j+1]) + Math.abs(b - d1[j+2]);
+              pairs++;
+              if (d === 0)    flat++;
+              else if (d < 8) soft++;
+              else if (d > 60) hard++;
+            }
+            // vertical neighbour
+            if (y < P1 - 1) {
+              const j = i + P1 * 4;
+              const d = Math.abs(r - d1[j]) + Math.abs(g - d1[j+1]) + Math.abs(b - d1[j+2]);
+              pairs++;
+              if (d === 0)    flat++;
+              else if (d < 8) soft++;
+              else if (d > 60) hard++;
+            }
+          }
+        }
+
+        const n          = P1 * P1;
+        const avgR       = rSum / n;
+        const avgG       = gSum / n;
+        const avgB       = bSum / n;
+        const flatR      = flat / pairs;
+        const softR      = soft / pairs;
+        const hardR      = hard / pairs;
+        const coarse     = colourSet4.size;   // real photo ≥ 900, AI/drawn < 600
+        const fine       = colourSet6.size;   // real photo ≥ 3000, cartoon < 800
+
+        /* ── Pass 2: 32×32 — micro-texture / sensor noise ── */
+        const P2 = 32;
+        const c2 = document.createElement("canvas");
+        c2.width = c2.height = P2;
+        const x2 = c2.getContext("2d");
+        if (!x2) { resolve({ isAIGenerated: false, aiGeneratedConfidence: 0 }); return; }
+        x2.drawImage(img, 0, 0, P2, P2);
+        const d2 = x2.getImageData(0, 0, P2, P2).data;
+
+        // Compute luminance variance — real cameras always have grain
+        let lumSum = 0;
+        const lums: number[] = [];
+        for (let i = 0; i < d2.length; i += 4) {
+          const lum = 0.299 * d2[i] + 0.587 * d2[i+1] + 0.114 * d2[i+2];
+          lums.push(lum);
+          lumSum += lum;
+        }
+        const lumMean = lumSum / lums.length;
+        const lumVar  = lums.reduce((s, v) => s + (v - lumMean) ** 2, 0) / lums.length;
+        // Real photos lumVar > 150 almost always (sensor grain)
+        // AI art / drawings: 20–120
+
+        /* ── Pass 3: 256×256 — DCT-like block uniformity ── */
+        // Divide into 8×8 blocks and measure variance WITHIN each block.
+        // AI art has extremely uniform blocks (smooth colour fill).
+        // Real photos have noisy blocks even in "flat" areas.
+        const P3 = 256;
+        const BS = 8;
+        const c3 = document.createElement("canvas");
+        c3.width = c3.height = P3;
+        const x3 = c3.getContext("2d");
+        if (!x3) { resolve({ isAIGenerated: false, aiGeneratedConfidence: 0 }); return; }
+        x3.drawImage(img, 0, 0, P3, P3);
+        const d3 = x3.getImageData(0, 0, P3, P3).data;
+
+        let lowVarBlocks = 0;
+        let totalBlocks  = 0;
+        for (let by = 0; by < P3; by += BS) {
+          for (let bx = 0; bx < P3; bx += BS) {
+            let bSum2 = 0;
+            const bLums: number[] = [];
+            for (let dy = 0; dy < BS; dy++) {
+              for (let dx = 0; dx < BS; dx++) {
+                const i = ((by + dy) * P3 + (bx + dx)) * 4;
+                const l = 0.299 * d3[i] + 0.587 * d3[i+1] + 0.114 * d3[i+2];
+                bLums.push(l); bSum2 += l;
+              }
+            }
+            const bMean = bSum2 / bLums.length;
+            const bVar  = bLums.reduce((s, v) => s + (v - bMean) ** 2, 0) / bLums.length;
+            if (bVar < 8) lowVarBlocks++;   // almost no texture in this block
+            totalBlocks++;
+          }
+        }
+        const lowVarRatio = lowVarBlocks / totalBlocks;
+        // AI art: > 0.55 (most blocks are perfectly smooth)
+        // Real photos: < 0.35 (even sky has some grain / compression artefacts)
+
+        /* ── Score each signal 0–1 ── */
+        const signals: Array<{ weight: number; fired: boolean; label: string }> = [
+          // Colour signals
+          { weight: 2.0, fired: coarse < 400,                   label: "too-few-coarse-colours" },
+          { weight: 1.5, fired: fine   < 1200,                  label: "too-few-fine-colours"   },
+          // Smoothness signals
+          { weight: 2.0, fired: flatR  > 0.06,                  label: "too-flat"               },
+          { weight: 2.0, fired: softR  > 0.52,                  label: "too-smooth"             },
+          { weight: 1.0, fired: hardR  < 0.02 && softR > 0.40,  label: "no-edges-but-smooth"   },
+          // Texture / noise signals
+          { weight: 2.5, fired: lumVar  < 100,                  label: "no-micro-texture"       },
+          { weight: 3.0, fired: lowVarRatio > 0.50,             label: "too-many-flat-blocks"   },
+          // Colour balance (AI models output balanced palettes)
+          { weight: 1.5, fired: Math.abs(avgR - avgG) + Math.abs(avgG - avgB) + Math.abs(avgR - avgB) < 12, label: "balanced-rgb" },
+          // Hand-drawn: sharp outlines + large solid fills
+          { weight: 2.0, fired: hardR  > 0.12 && flatR > 0.10, label: "hand-drawn-outline"     },
+        ];
+
+        const totalWeight = signals.reduce((s, sig) => s + sig.weight, 0);
+        const firedWeight = signals.filter(s => s.fired).reduce((s, sig) => s + sig.weight, 0);
+        const score       = firedWeight / totalWeight;  // 0.0 – 1.0
+
+        // Require score ≥ 0.40 to reject (weighted majority)
+        const isAIGenerated        = score >= 0.40;
+        const aiGeneratedConfidence = Math.round(Math.min(96, score * 130));
+
+        resolve({ isAIGenerated, aiGeneratedConfidence });
+      } catch {
+        resolve({ isAIGenerated: false, aiGeneratedConfidence: 0 });
+      }
+    };
+
+    img.onerror = () => resolve({ isAIGenerated: false, aiGeneratedConfidence: 0 });
+    img.src = dataUrl;
+  });
+}
+
+/* ── Public function called by report.tsx ── */
 export function simulateAIDetection(dataUrl?: string): Promise<{
   tags: string[];
   confidence: number;
@@ -182,129 +386,29 @@ export function simulateAIDetection(dataUrl?: string): Promise<{
   aiGeneratedConfidence: number;
 }> {
   return new Promise((resolve) => {
-    const cats = CATEGORIES.filter((c) => c !== "Other");
+    const cats     = CATEGORIES.filter((c) => c !== "Other");
     const category = cats[Math.floor(Math.random() * cats.length)];
-    const tags = [...AI_CATEGORY_TAGS[category]].sort(() => 0.5 - Math.random()).slice(0, 3);
-    const confidence = 80 + Math.floor(Math.random() * 16);
+    const tags     = [...AI_CATEGORY_TAGS[category]].sort(() => 0.5 - Math.random()).slice(0, 3);
+    const confidence = 82 + Math.floor(Math.random() * 14);
 
     if (!dataUrl) {
-      resolve({ tags, confidence, category, isAIGenerated: false, aiGeneratedConfidence: 4 });
+      resolve({ tags, confidence, category, isAIGenerated: false, aiGeneratedConfidence: 0 });
       return;
     }
 
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-
-    img.onload = () => {
-      try {
-        // ── Sample 1: 128×128 for global colour diversity ──────────────
-        const BIG = 128;
-        const c1 = document.createElement("canvas");
-        c1.width = c1.height = BIG;
-        const x1 = c1.getContext("2d")!;
-        x1.drawImage(img, 0, 0, BIG, BIG);
-        const d1 = x1.getImageData(0, 0, BIG, BIG).data;
-
-        // Fine-grained unique colour count (5-bit per channel = 32768 possible)
-        const colorSet = new Set<number>();
-        // Coarse unique colour count (3-bit per channel = 512 possible buckets)
-        const coarseSet = new Set<number>();
-        let totalR = 0, totalG = 0, totalB = 0;
-        let pixelCount = 0;
-
-        for (let i = 0; i < d1.length; i += 4) {
-          const r = d1[i], g = d1[i + 1], b = d1[i + 2];
-          totalR += r; totalG += g; totalB += b;
-          pixelCount++;
-          colorSet.add(((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3));
-          coarseSet.add(((r >> 5) << 6) | ((g >> 5) << 3) | (b >> 5));
-        }
-
-        const avgR = totalR / pixelCount;
-        const avgG = totalG / pixelCount;
-        const avgB = totalB / pixelCount;
-        const fineColors  = colorSet.size;   // real photo: 5000-20000+, AI art: 1000-8000, drawing: <1000
-        const coarseColors = coarseSet.size; // real photo: 350-512, drawing/flat: <100
-
-        // ── Sample 2: 32×32 for local noise / smoothness ──────────────
-        const SM = 32;
-        const c2 = document.createElement("canvas");
-        c2.width = c2.height = SM;
-        const x2 = c2.getContext("2d")!;
-        x2.drawImage(img, 0, 0, SM, SM);
-        const d2 = x2.getImageData(0, 0, SM, SM).data;
-
-        let hardEdges = 0;     // very sharp transitions (sketch / outline art)
-        let softTransitions = 0; // gradual blends (photographic or AI art)
-        let flatBlocks = 0;    // zero-change runs (solid fill / vector art)
-        const smTotal = SM * SM;
-
-        for (let i = 0; i < d2.length - 4; i += 4) {
-          const r = d2[i], g = d2[i + 1], b = d2[i + 2];
-          const nr = d2[i + 4], ng = d2[i + 5], nb = d2[i + 6];
-          const diff = Math.abs(r - nr) + Math.abs(g - ng) + Math.abs(b - nb);
-          if (diff === 0)       flatBlocks++;        // pure flat fill
-          else if (diff < 6)   softTransitions++;   // very smooth
-          else if (diff > 120) hardEdges++;          // sharp outline
-        }
-
-        const flatRatio  = flatBlocks / smTotal;
-        const softRatio  = softTransitions / smTotal;
-        const hardRatio  = hardEdges / smTotal;
-
-        // ── 5 independent signals ──────────────────────────────────────
-        const signals: boolean[] = [];
-
-        // S1: very few fine colours — drawing / simple illustration
-        // Real photos rarely go below 3000 at 128×128
-        signals.push(fineColors < 2500);
-
-        // S2: very few coarse colour buckets — flat-fill / cartoon
-        // Real outdoor photos easily hit 300+ buckets
-        signals.push(coarseColors < 80);
-
-        // S3: lots of pure-flat blocks — vector / cel-shaded art
-        // Camera noise means real photos almost never have >30% flat pairs
-        signals.push(flatRatio > 0.30);
-
-        // S4: extremely smooth with lots of colours — AI art hallmark
-        // AI tends to produce soft gradients with rich but uniform palettes
-        signals.push(softRatio > 0.55 && fineColors > 3000);
-
-        // S5: near-perfect RGB balance — AI models output balanced colour stats
-        // Real photos have natural colour casts (sky = blue-heavy, grass = green-heavy)
-        const balance = Math.abs(avgR - avgG) + Math.abs(avgG - avgB) + Math.abs(avgR - avgB);
-        signals.push(balance < 10 && fineColors > 2000);
-
-        const firedCount = signals.filter(Boolean).length;
-
-        // Need 3 of 5 to flag — single false positives can't trigger rejection
-        const isAIGenerated = firedCount >= 3;
-        const aiGeneratedConfidence = isAIGenerated
-          ? Math.min(97, 55 + firedCount * 10)   // 65–97%
-          : Math.max(2,  firedCount * 8);          // 0–24%
-
+    // Try real API first, fall back to canvas classifier
+    detectViaSightengine(dataUrl)
+      .then(({ isAIGenerated, aiGeneratedConfidence }) => {
         resolve({ tags, confidence, category, isAIGenerated, aiGeneratedConfidence });
-      } catch {
-        // Canvas tainted (CORS) or other error — don't block the user
-        resolve({ tags, confidence, category, isAIGenerated: false, aiGeneratedConfidence: 4 });
-      }
-    };
-
-    img.onerror = () => {
-      resolve({ tags, confidence, category, isAIGenerated: false, aiGeneratedConfidence: 4 });
-    };
-
-    img.src = dataUrl;
+      })
+      .catch(() => {
+        // No API key or network error → canvas fallback
+        detectViaCanvas(dataUrl).then(({ isAIGenerated, aiGeneratedConfidence }) => {
+          resolve({ tags, confidence, category, isAIGenerated, aiGeneratedConfidence });
+        });
+      });
   });
 }
-
-const URGENCY_PTS: Record<Urgency, number> = {
-  Critical: 4,
-  High: 3,
-  Medium: 2,
-  Low: 1,
-};
 
 export function computeRating(r: Report): {
   score: number;
@@ -312,7 +416,7 @@ export function computeRating(r: Report): {
   color: string;
   emoji: string;
 } {
-  let s = URGENCY_PTS[r.urgency];
+  let s = { Low: 1, Medium: 3, High: 5, Critical: 7 }[r.urgency];
   s += Math.min(3, Math.floor(r.upvotes.length / 5));
   if (r.category === "Safety") s += 2;
   if (r.category === "Roads" || r.category === "Water" || r.category === "Electricity") s += 1;

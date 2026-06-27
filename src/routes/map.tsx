@@ -43,6 +43,10 @@ function LeafletMap({
   const mapDivRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
   const markersRef = useRef<Map<string, any>>(new Map());
+  const onSelectRef = useRef(onSelect);
+
+  // Keep ref in sync with latest prop without stale closures
+  useEffect(() => { onSelectRef.current = onSelect; });
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -68,7 +72,7 @@ function LeafletMap({
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: "© OpenStreetMap contributors",
     }).addTo(map);
-    map.on("click", () => onSelect(null));
+    map.on("click", () => onSelectRef.current(null));
     mapRef.current = map;
   }, [ready]);
 
@@ -105,7 +109,7 @@ function LeafletMap({
       const marker = L.marker([r.lat, r.lng], { icon }).addTo(map);
       marker.on("click", (e: any) => {
         e.originalEvent.stopPropagation();
-        onSelect(r.id);
+        onSelectRef.current(r.id);
       });
       markersRef.current.set(r.id, marker);
     });
