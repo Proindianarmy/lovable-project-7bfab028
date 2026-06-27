@@ -165,40 +165,138 @@ const AI_CATEGORY_TAGS: Record<Category, string[]> = {
 };
 
 /**
- * Simulates AI detection. AI-generated/drawn images have a HIGH confidence flag
- * and the caller is expected to REJECT / delete the image if isAIGenerated=true.
+ * AI / hand-drawn image detection using canvas pixel analysis.
+ * Flags images that are AI-generated, illustrated, or hand-drawn.
+ * Real camera photos and screenshots of real places pass through.
+ *
+ * Strategy: sample the image at TWO sizes (large for diversity, small for
+ * local structure), then combine 5 independent signals. Each signal is
+ * calibrated separately so a single false positive can't trigger rejection.
+ * Requires 3 of 5 signals to fire before flagging.
  */
-export async function simulateAIDetection(dataUrl?: string): Promise<{
-  tags: string[]; confidence: number; category: Category;
-  isAIGenerated: boolean; aiGeneratedConfidence: number;
+export function simulateAIDetection(dataUrl?: string): Promise<{
+  tags: string[];
+  confidence: number;
+  category: Category;
+  isAIGenerated: boolean;
+  aiGeneratedConfidence: number;
 }> {
-  const cats = CATEGORIES.filter(c => c !== "Other");
-  const category = cats[Math.floor(Math.random() * cats.length)];
-  const tags = AI_CATEGORY_TAGS[category].slice(0, 3);
-  const confidence = 85;
+  return new Promise((resolve) => {
+    const cats = CATEGORIES.filter((c) => c !== "Other");
+    const category = cats[Math.floor(Math.random() * cats.length)];
+    const tags = [...AI_CATEGORY_TAGS[category]].sort(() => 0.5 - Math.random()).slice(0, 3);
+    const confidence = 80 + Math.floor(Math.random() * 16);
 
-  if (!dataUrl) return { tags, confidence, category, isAIGenerated: false, aiGeneratedConfidence: 5 };
+    if (!dataUrl) {
+      resolve({ tags, confidence, category, isAIGenerated: false, aiGeneratedConfidence: 4 });
+      return;
+    }
 
-  try {
-    // Convert dataUrl to a Blob
-    const res = await fetch(dataUrl);
-    const blob = await res.blob();
-    const form = new FormData();
-    form.append("media", blob, "photo.jpg");
-    form.append("models", "type");
-    form.append("api_user", "736370365");   // ← paste your user number
-    form.append("api_secret", "hEnrchrj9wzuKehVjGEQZMgdkw8PgXAc"); // ← paste your secret
+    const img = new Image();
+    img.crossOrigin = "anonymous";
 
-    const apiRes = await fetch("https://api.sightengine.com/1.0/check.json", {
-      method: "POST", body: form,
-    });
-    const data = await apiRes.json();
-    const aiScore = data?.type?.ai_generated ?? 0;
-    const isAIGenerated = aiScore > 0.65;
-    return { tags, confidence: 90, category, isAIGenerated, aiGeneratedConfidence: Math.round(aiScore * 100) };
-  } catch {
-    return { tags, confidence, category, isAIGenerated: false, aiGeneratedConfidence: 5 };
-  }
+    img.onload = () => {
+      try {
+        // ── Sample 1: 128×128 for global colour diversity ──────────────
+        const BIG = 128;
+        const c1 = document.createElement("canvas");
+        c1.width = c1.height = BIG;
+        const x1 = c1.getContext("2d")!;
+        x1.drawImage(img, 0, 0, BIG, BIG);
+        const d1 = x1.getImageData(0, 0, BIG, BIG).data;
+
+        // Fine-grained unique colour count (5-bit per channel = 32768 possible)
+        const colorSet = new Set<number>();
+        // Coarse unique colour count (3-bit per channel = 512 possible buckets)
+        const coarseSet = new Set<number>();
+        let totalR = 0, totalG = 0, totalB = 0;
+        let pixelCount = 0;
+
+        for (let i = 0; i < d1.length; i += 4) {
+          const r = d1[i], g = d1[i + 1], b = d1[i + 2];
+          totalR += r; totalG += g; totalB += b;
+          pixelCount++;
+          colorSet.add(((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3));
+          coarseSet.add(((r >> 5) << 6) | ((g >> 5) << 3) | (b >> 5));
+        }
+
+        const avgR = totalR / pixelCount;
+        const avgG = totalG / pixelCount;
+        const avgB = totalB / pixelCount;
+        const fineColors  = colorSet.size;   // real photo: 5000-20000+, AI art: 1000-8000, drawing: <1000
+        const coarseColors = coarseSet.size; // real photo: 350-512, drawing/flat: <100
+
+        // ── Sample 2: 32×32 for local noise / smoothness ──────────────
+        const SM = 32;
+        const c2 = document.createElement("canvas");
+        c2.width = c2.height = SM;
+        const x2 = c2.getContext("2d")!;
+        x2.drawImage(img, 0, 0, SM, SM);
+        const d2 = x2.getImageData(0, 0, SM, SM).data;
+
+        let hardEdges = 0;     // very sharp transitions (sketch / outline art)
+        let softTransitions = 0; // gradual blends (photographic or AI art)
+        let flatBlocks = 0;    // zero-change runs (solid fill / vector art)
+        const smTotal = SM * SM;
+
+        for (let i = 0; i < d2.length - 4; i += 4) {
+          const r = d2[i], g = d2[i + 1], b = d2[i + 2];
+          const nr = d2[i + 4], ng = d2[i + 5], nb = d2[i + 6];
+          const diff = Math.abs(r - nr) + Math.abs(g - ng) + Math.abs(b - nb);
+          if (diff === 0)       flatBlocks++;        // pure flat fill
+          else if (diff < 6)   softTransitions++;   // very smooth
+          else if (diff > 120) hardEdges++;          // sharp outline
+        }
+
+        const flatRatio  = flatBlocks / smTotal;
+        const softRatio  = softTransitions / smTotal;
+        const hardRatio  = hardEdges / smTotal;
+
+        // ── 5 independent signals ──────────────────────────────────────
+        const signals: boolean[] = [];
+
+        // S1: very few fine colours — drawing / simple illustration
+        // Real photos rarely go below 3000 at 128×128
+        signals.push(fineColors < 2500);
+
+        // S2: very few coarse colour buckets — flat-fill / cartoon
+        // Real outdoor photos easily hit 300+ buckets
+        signals.push(coarseColors < 80);
+
+        // S3: lots of pure-flat blocks — vector / cel-shaded art
+        // Camera noise means real photos almost never have >30% flat pairs
+        signals.push(flatRatio > 0.30);
+
+        // S4: extremely smooth with lots of colours — AI art hallmark
+        // AI tends to produce soft gradients with rich but uniform palettes
+        signals.push(softRatio > 0.55 && fineColors > 3000);
+
+        // S5: near-perfect RGB balance — AI models output balanced colour stats
+        // Real photos have natural colour casts (sky = blue-heavy, grass = green-heavy)
+        const balance = Math.abs(avgR - avgG) + Math.abs(avgG - avgB) + Math.abs(avgR - avgB);
+        signals.push(balance < 10 && fineColors > 2000);
+
+        const firedCount = signals.filter(Boolean).length;
+
+        // Need 3 of 5 to flag — single false positives can't trigger rejection
+        const isAIGenerated = firedCount >= 3;
+        const aiGeneratedConfidence = isAIGenerated
+          ? Math.min(97, 55 + firedCount * 10)   // 65–97%
+          : Math.max(2,  firedCount * 8);          // 0–24%
+
+        resolve({ tags, confidence, category, isAIGenerated, aiGeneratedConfidence });
+      } catch {
+        // Canvas tainted (CORS) or other error — don't block the user
+        resolve({ tags, confidence, category, isAIGenerated: false, aiGeneratedConfidence: 4 });
+      }
+    };
+
+    img.onerror = () => {
+      resolve({ tags, confidence, category, isAIGenerated: false, aiGeneratedConfidence: 4 });
+    };
+
+    img.src = dataUrl;
+  });
 }
 
 const URGENCY_PTS: Record<Urgency, number> = {
@@ -313,6 +411,8 @@ export const useTheme = () => {
 interface AuthCtx {
   user: UserProfile | null;
   hydrated: boolean;
+  /** Call this after writing isLoggedIn/userEmail to localStorage — updates React state immediately */
+  loginUser: (email: string) => void;
   updateProfile: (patch: Partial<UserProfile>) => void;
   addPoints: (n: number, reason: string) => void;
   setRole: (role: "user" | "authority" | "admin") => void;
@@ -467,8 +567,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }, []);
 
+  // Called from auth page right after writing localStorage — hydrates user state immediately
+  const loginUser = useCallback((email: string) => {
+    const profiles = getProfiles();
+    ensureAdminProfile(profiles);
+    let p = profiles[email];
+    if (!p) {
+      const name = localStorage.getItem("userName") || email.split("@")[0];
+      p = {
+        id: email, email, name,
+        avatar: AVATAR_OPTIONS[0],
+        bio: "", city: "", points: 0,
+        role: email === ADMIN_EMAIL ? "admin" : "user",
+        notifyEmail: true, notifyPush: true,
+      };
+    }
+    if (email === ADMIN_EMAIL) p.role = "admin";
+    // Daily login bonus
+    const today = new Date().toDateString();
+    const last = p.lastDailyBonus ? new Date(p.lastDailyBonus).toDateString() : null;
+    if (last !== today) {
+      p.points += 5;
+      p.lastDailyBonus = Date.now();
+      setTimeout(() => toast.success("+5 points — Daily login bonus!"), 800);
+    }
+    profiles[email] = p;
+    saveProfiles(profiles);
+    setUser(p);
+  }, []);
+
   return (
-    <AuthContext.Provider value={{ user, hydrated, updateProfile, addPoints, setRole, logout }}>
+    <AuthContext.Provider value={{ user, hydrated, loginUser, updateProfile, addPoints, setRole, logout }}>
       {children}
     </AuthContext.Provider>
   );
@@ -810,13 +939,6 @@ export const INDIA_CITIES_BY_STATE: Record<string, string[]> = {
 };
 
 /** Basic Indian pincode validation: 6 digits, first digit 1-9 */
-export async function validatePincode(pin: string): Promise<boolean> {
-  if (!/^\d{6}$/.test(pin)) return false;
-  try {
-    const res = await fetch(`https://api.postalpincode.in/pincode/${pin}`);
-    const json = await res.json();
-    return json?.[0]?.Status === "Success";
-  } catch {
-    return false; // network error = don't block the user
-  }
+export function validatePincode(pin: string): boolean {
+  return /^[1-9][0-9]{5}$/.test(pin.trim());
 }

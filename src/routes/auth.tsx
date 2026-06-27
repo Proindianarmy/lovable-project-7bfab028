@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { Eye, EyeOff, Map, AlertTriangle } from "lucide-react";
-import { ADMIN_EMAIL, ADMIN_PASSWORD, ADMIN_NAME } from "@/lib/store";
+import { ADMIN_EMAIL, ADMIN_PASSWORD, ADMIN_NAME, useAuth } from "@/lib/store";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({ meta: [{ title: "Sign In — IssueSnap" }] }),
@@ -15,7 +15,6 @@ function getAccounts(): Account[] {
   try {
     const raw = localStorage.getItem("accounts");
     const accounts: Account[] = raw ? JSON.parse(raw) : [];
-    // Always ensure admin is present
     if (!accounts.find((a) => a.email === ADMIN_EMAIL)) {
       accounts.push({ name: ADMIN_NAME, email: ADMIN_EMAIL, password: ADMIN_PASSWORD });
       localStorage.setItem("accounts", JSON.stringify(accounts));
@@ -28,12 +27,12 @@ function getAccounts(): Account[] {
 
 function AuthPage() {
   const navigate = useNavigate();
-  // Default to signup when arriving from the landing "Report an Issue" button
+  const { loginUser } = useAuth();
+
   const defaultMode =
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("mode") === "signup"
-      ? "signup"
-      : "signin";
+      ? "signup" : "signin";
 
   const [mode, setMode] = useState<"signin" | "signup">(defaultMode as "signin" | "signup");
   const [name, setName] = useState("");
@@ -49,6 +48,15 @@ function AuthPage() {
   const redirected =
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("blocked") === "1";
+
+  const doLogin = (userEmail: string, userName: string) => {
+    localStorage.setItem("isLoggedIn", "true");
+    localStorage.setItem("userEmail", userEmail);
+    localStorage.setItem("userName", userName);
+    // This updates React state immediately — no reload needed
+    loginUser(userEmail);
+    navigate({ to: "/dashboard" });
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -69,10 +77,7 @@ function AuthPage() {
       }
       accounts.push({ name: name.trim(), email, password });
       localStorage.setItem("accounts", JSON.stringify(accounts));
-      localStorage.setItem("isLoggedIn", "true");
-      localStorage.setItem("userEmail", email);
-      localStorage.setItem("userName", name.trim());
-      navigate({ to: "/dashboard" });
+      doLogin(email, name.trim());
     } else {
       if (!EMAIL_RE.test(email)) next.email = "Please enter a valid email address";
       if (!password) next.password = "Please enter your password";
@@ -85,10 +90,7 @@ function AuthPage() {
         setErrors({ general: "No account found with these credentials. Please create an account first." });
         return;
       }
-      localStorage.setItem("isLoggedIn", "true");
-      localStorage.setItem("userEmail", email);
-      localStorage.setItem("userName", match.name);
-      navigate({ to: "/dashboard" });
+      doLogin(email, match.name);
     }
   };
 
@@ -120,7 +122,7 @@ function AuthPage() {
             {redirected && (
               <div className="mb-4 flex items-start gap-2 rounded-lg border border-yellow-300 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">
                 <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-                <span>You must be signed in to access that page. Please sign in or create an account first.</span>
+                <span>You must be signed in to access that page.</span>
               </div>
             )}
 
@@ -132,18 +134,12 @@ function AuthPage() {
             )}
 
             <div className="grid grid-cols-2 gap-1 rounded-lg bg-muted p-1 mb-6">
-              <button
-                type="button"
-                onClick={() => { setMode("signin"); setErrors({}); }}
-                className={`py-2 text-sm rounded-md font-medium transition ${mode === "signin" ? "bg-background shadow-sm" : "text-muted-foreground"}`}
-              >
+              <button type="button" onClick={() => { setMode("signin"); setErrors({}); }}
+                className={`py-2 text-sm rounded-md font-medium transition ${mode === "signin" ? "bg-background shadow-sm" : "text-muted-foreground"}`}>
                 Sign In
               </button>
-              <button
-                type="button"
-                onClick={() => { setMode("signup"); setErrors({}); }}
-                className={`py-2 text-sm rounded-md font-medium transition ${mode === "signup" ? "bg-background shadow-sm" : "text-muted-foreground"}`}
-              >
+              <button type="button" onClick={() => { setMode("signup"); setErrors({}); }}
+                className={`py-2 text-sm rounded-md font-medium transition ${mode === "signup" ? "bg-background shadow-sm" : "text-muted-foreground"}`}>
                 Create Account
               </button>
             </div>
@@ -195,7 +191,7 @@ function AuthPage() {
                       aria-invalid={!!errors.confirm} />
                     <button type="button" onClick={() => setShowConfirm((v) => !v)}
                       className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-muted-foreground hover:text-foreground"
-                      aria-label={showConfirm ? "Hide password" : "Show password"}>
+                      aria-label={showConfirm ? "Hide" : "Show"}>
                       {showConfirm ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>

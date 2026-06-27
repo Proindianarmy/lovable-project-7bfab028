@@ -189,22 +189,22 @@ function Report() {
 
   useEffect(() => {
     if (pincode.length === 6) {
-      validatePincode(pincode).then(setPincodeValid);
+      setPincodeValid(validatePincode(pincode));
     } else {
       setPincodeValid(null);
     }
   }, [pincode]);
 
-  // Auto-request GPS on mount
+  // Auto-request GPS on mount — silently, no toast
   useEffect(() => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
           setLat(pos.coords.latitude);
           setLng(pos.coords.longitude);
-          toast.success("Live location detected — you can move the pin to the exact spot.");
+          // Silent — no toast, no notification
         },
-        () => { /* silent fail — user can pin manually */ },
+        () => { /* silent fail */ },
       );
     }
   }, []);
@@ -286,8 +286,12 @@ function Report() {
   const fullLocation = [address, city, state, pincode].filter(Boolean).join(", ");
 
   const submit = (force = false) => {
-    if (!title.trim() || !description.trim() || !category || !fullLocation.trim() || !urgency) {
+    if (!title.trim() || !description.trim() || !category || !urgency) {
       toast.error("Please fill in all required fields.");
+      return;
+    }
+    if (!state || !city) {
+      toast.error("Location is required. Please select a state and city.");
       return;
     }
     if (pincode && pincodeValid === false) {
