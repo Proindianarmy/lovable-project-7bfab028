@@ -313,25 +313,11 @@ function Feed() {
                       </span>
                     </div>
                     <p className="text-sm text-muted-foreground mt-1.5 line-clamp-2">
-                      {r.description.startsWith("data:") || r.description.includes("data:image/")
-                        ? "(no description)"
-                        : r.description}
+                      {r.description}
                     </p>
                     <div className="flex items-center gap-3 text-xs text-muted-foreground mt-2 flex-wrap">
                       <span className="flex items-center gap-1">
-                        <MapPin className="w-3 h-3" />{" "}
-                        {(() => {
-                          const loc = r.location || r.city || "—";
-                          // Strip any base64 that leaked into location field
-                          const clean = loc.includes("data:image/")
-                            ? loc
-                                .slice(0, loc.indexOf("data:image/"))
-                                .trim()
-                                .replace(/·\s*$/, "")
-                                .trim()
-                            : loc;
-                          return clean || "—";
-                        })()}
+                        <MapPin className="w-3 h-3" /> {r.location || r.city || "—"}
                       </span>
                       <span>· {timeAgo(r.createdAt)}</span>
                       <span>

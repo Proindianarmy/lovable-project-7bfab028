@@ -409,7 +409,7 @@ function classifyCanvas(sig: CanvasSignals): { isAI: boolean; score: number; rea
     // Edge continuity — drawings have long straight edges (tightened)
     { w: 1.5, fire: sig.edgeContinuity > 0.85 && sig.flatRatio > 0.07, label: "drawing-edges" },
     // Hard outlines + flat fills = hand-drawn (tightened)
-    { w: 2.0, fire: sig.hardRatio > 0.15 && sig.flatRatio > 0.1, label: "cartoon-outline" },
+    { w: 2.0, fire: sig.hardRatio > 0.15 && sig.flatRatio > 0.10, label: "cartoon-outline" },
   ];
 
   const total = checks.reduce((s, c) => s + c.w, 0);
@@ -819,34 +819,15 @@ interface ReportsCtx {
 }
 const ReportsContext = createContext<ReportsCtx | null>(null);
 
-/** Strip base64 data-URIs and other garbage that may have been
- *  accidentally saved into text fields from old buggy reports. */
-function sanitiseText(text: string | undefined | null): string {
-  if (!text) return "";
-  // If entire field is a data URI → replace with empty
-  if (/^data:[a-z]+\/[a-z+]+;base64,/i.test(text.trim())) return "";
-  // If the field contains an embedded data URI anywhere, cut it off there
-  const idx = text.indexOf("data:image/");
-  if (idx !== -1) {
-    const before = text.slice(0, idx).trim();
-    return before || "";
-  }
-  return text;
-}
-
 export function ReportsProvider({ children }: { children: ReactNode }) {
   const [reports, setReports] = useState<Report[]>([]);
 
   useEffect(() => {
-    // Migrate and sanitise reports from localStorage
+    // Migrate old reports that lack downvotes field
     const raw = load<Report[]>("reports", []);
     const migrated = raw.map((r) => ({
       ...r,
       downvotes: r.downvotes ?? [],
-      // Strip any accidentally stored base64/data-URI blobs from text fields
-      description: sanitiseText(r.description),
-      location: sanitiseText(r.location),
-      title: sanitiseText(r.title),
     }));
     setReports(migrated);
   }, []);
