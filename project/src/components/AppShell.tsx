@@ -15,9 +15,12 @@ import {
   User,
   Check,
   X,
+  Globe,
 } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { useAuth, useNotifications, useTheme, timeAgo } from "@/lib/store";
+import { LangContext } from "@/lib/LangContext";
+import { useT, LANGUAGES } from "@/lib/i18n";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -28,19 +31,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-
-// Nav items — analytics/authority only shown for admin role (handled in render)
-const nav = [
-  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/report", label: "Report Issue", icon: PlusCircle },
-  { to: "/feed", label: "Issue Feed", icon: ListChecks },
-  { to: "/map", label: "Map", icon: Map },
-  { to: "/notifications", label: "Notifications", icon: Bell },
-  { to: "/leaderboard", label: "Leaderboard", icon: Trophy },
-  { to: "/analytics", label: "Analytics", icon: BarChart3, adminOnly: true },
-  { to: "/authority", label: "Authority", icon: Shield, adminOnly: true },
-  { to: "/settings", label: "Settings", icon: Settings },
-];
 
 function ThemeToggle() {
   const { theme, toggle } = useTheme();
@@ -56,8 +46,49 @@ function ThemeToggle() {
   );
 }
 
+function LangSwitcher() {
+  const { lang, setLang } = useContext(LangContext);
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, []);
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-1.5 px-2 py-1.5 rounded-full border border-border hover:bg-muted text-sm font-medium"
+        aria-label="Change language"
+        title="Change language"
+      >
+        <Globe className="w-4 h-4" />
+        <span className="hidden sm:inline">{LANGUAGES.find((l) => l.code === lang)?.nativeLabel}</span>
+      </button>
+      {open && (
+        <div className="absolute right-0 mt-2 w-36 rounded-xl border border-border bg-popover shadow-lg z-50 overflow-hidden">
+          {LANGUAGES.map((l) => (
+            <button
+              key={l.code}
+              onClick={() => { setLang(l.code); setOpen(false); }}
+              className={`w-full text-left px-4 py-2.5 text-sm hover:bg-muted flex items-center justify-between ${lang === l.code ? "text-primary font-semibold" : ""}`}
+            >
+              <span>{l.nativeLabel}</span>
+              {lang === l.code && <span className="text-primary">✓</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function NotifBell() {
   const { notifications, unread, markRead, markAllRead } = useNotifications();
+  const t = useT();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -84,10 +115,10 @@ function NotifBell() {
       {open && (
         <div className="absolute right-0 mt-2 w-80 max-h-[28rem] overflow-auto rounded-xl border border-border bg-popover text-popover-foreground shadow-lg z-50">
           <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-            <span className="font-semibold text-sm">Notifications</span>
+            <span className="font-semibold text-sm">{t("notifications")}</span>
             <div className="flex items-center gap-2">
               <button onClick={markAllRead} className="text-xs text-primary hover:underline">
-                Mark all read
+                {t("markAllRead")}
               </button>
               <button
                 onClick={() => setOpen(false)}
@@ -100,7 +131,7 @@ function NotifBell() {
           </div>
           {notifications.length === 0 ? (
             <div className="p-6 text-center text-sm text-muted-foreground">
-              No notifications yet.
+              {t("noNotifications")}
             </div>
           ) : (
             <ul>
@@ -135,6 +166,7 @@ function NotifBell() {
 function UserMenu() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -174,7 +206,7 @@ function UserMenu() {
                 {user && (
                   <p className="text-xs mt-1">
                     <span className="font-medium text-primary">{user.points}</span>{" "}
-                    <span className="text-muted-foreground">points · {user.role}</span>
+                    <span className="text-muted-foreground">{t("points")} · {user.role}</span>
                   </p>
                 )}
               </div>
@@ -191,7 +223,7 @@ function UserMenu() {
               onClick={() => setOpen(false)}
               className="flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-muted"
             >
-              <User className="w-4 h-4" /> Profile & Settings
+              <User className="w-4 h-4" /> {t("profileSettings")}
             </Link>
             <button
               onClick={() => {
@@ -200,7 +232,7 @@ function UserMenu() {
               }}
               className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-destructive hover:bg-muted"
             >
-              <LogOut className="w-4 h-4" /> Log out
+              <LogOut className="w-4 h-4" /> {t("logOut")}
             </button>
           </div>
         )}
@@ -208,20 +240,20 @@ function UserMenu() {
       <AlertDialog open={confirm} onOpenChange={setConfirm}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Log out?</AlertDialogTitle>
+            <AlertDialogTitle>{t("logOutTitle")}</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to log out of IssueSnap?
+              {t("logOutConfirm")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
                 logout();
                 navigate({ to: "/" });
               }}
             >
-              Log out
+              {t("logOut")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -233,7 +265,20 @@ function UserMenu() {
 export function AppShell({ children, title }: { children: ReactNode; title?: string }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { user } = useAuth();
+  const t = useT();
   const isAdmin = user?.role === "admin" || user?.role === "authority";
+
+  const nav = [
+    { to: "/dashboard", label: t("dashboard"), icon: LayoutDashboard },
+    { to: "/report", label: t("reportIssue"), icon: PlusCircle },
+    { to: "/feed", label: t("issueFeed"), icon: ListChecks },
+    { to: "/map", label: t("map"), icon: Map },
+    { to: "/notifications", label: t("notifications"), icon: Bell },
+    { to: "/leaderboard", label: t("leaderboard"), icon: Trophy },
+    { to: "/analytics", label: t("analytics"), icon: BarChart3, adminOnly: true },
+    { to: "/authority", label: t("authority"), icon: Shield, adminOnly: true },
+    { to: "/settings", label: t("settings"), icon: Settings },
+  ];
 
   const visibleNav = nav.filter((item) => !item.adminOnly || isAdmin);
 
@@ -272,6 +317,7 @@ export function AppShell({ children, title }: { children: ReactNode; title?: str
         <header className="h-16 bg-card border-b border-border flex items-center gap-4 px-6">
           <div className="flex-1" />
           <div className="ml-auto flex items-center gap-2">
+            <LangSwitcher />
             <ThemeToggle />
             <NotifBell />
             <UserMenu />

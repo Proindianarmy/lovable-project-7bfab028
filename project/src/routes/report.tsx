@@ -603,8 +603,14 @@ function Report() {
             <div className="relative">
               <input
                 value={pincode}
-                onChange={(e) => setPincode(e.target.value.slice(0, 6))}
-                placeholder="6-digit pincode (optional)"
+                onChange={(e) => {
+                  // Only allow digits, max 6
+                  const digits = e.target.value.replace(/\D/g, "").slice(0, 6);
+                  setPincode(digits);
+                }}
+                placeholder="6-digit Indian pincode (optional)"
+                inputMode="numeric"
+                pattern="[0-9]*"
                 className={`inp pr-8 ${
                   pincodeValid === true
                     ? "border-green-500 focus:ring-green-500"

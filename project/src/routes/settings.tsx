@@ -1,10 +1,11 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { AppShell } from "@/components/AppShell";
 import { requireAuth } from "@/lib/auth-guard";
-import { useAuth, useReports, levelFor, AVATAR_OPTIONS } from "@/lib/store";
+import { useAuth, useReports, levelFor, AVATAR_OPTIONS, censorText } from "@/lib/store";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { LogOut, Camera } from "lucide-react";
+import { useT } from "@/lib/i18n";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -27,6 +28,7 @@ function SettingsPage() {
   const { user, updateProfile, logout } = useAuth();
   const { reports } = useReports();
   const navigate = useNavigate();
+  const t = useT();
 
   const [name, setName] = useState("");
   const [bio, setBio] = useState("");
@@ -55,7 +57,9 @@ function SettingsPage() {
   const isCustomPhoto = avatar.startsWith("data:");
 
   const save = () => {
-    updateProfile({ name, bio, city, avatar, notifyEmail, notifyPush });
+    const { text: cleanName } = censorText(name);
+    const { text: cleanBio } = censorText(bio);
+    updateProfile({ name: cleanName, bio: cleanBio, city, avatar, notifyEmail, notifyPush });
     toast.success("Profile saved!");
   };
 
@@ -75,12 +79,12 @@ function SettingsPage() {
   };
 
   return (
-    <AppShell title="Profile & Settings">
+    <AppShell title={t("profileSettings")}>
       <div className="grid lg:grid-cols-[1fr_280px] gap-6">
         <div className="space-y-6">
           {/* ── Profile section ── */}
           <section className="bg-card border border-border rounded-2xl p-6">
-            <h2 className="font-bold mb-5">Profile</h2>
+            <h2 className="font-bold mb-5">{t("profile")}</h2>
 
             {/* Avatar picker */}
             <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6 mb-6">
@@ -150,28 +154,28 @@ function SettingsPage() {
 
             {/* Fields */}
             <div className="grid sm:grid-cols-2 gap-4">
-              <Field label="Display name">
+              <Field label={t("displayName")}>
                 <input
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="Your name"
+                  placeholder={t("namePlaceholder")}
                   className="sfield"
                 />
               </Field>
-              <Field label="City">
+              <Field label={t("city")}>
                 <input
                   value={city}
                   onChange={(e) => setCity(e.target.value)}
-                  placeholder="Your city"
+                  placeholder={t("cityPlaceholder")}
                   className="sfield"
                 />
               </Field>
-              <Field label="Bio" full>
+              <Field label={t("bio")} full>
                 <textarea
                   value={bio}
                   onChange={(e) => setBio(e.target.value)}
                   rows={3}
-                  placeholder="A short bio about yourself"
+                  placeholder={t("bioPlaceholder")}
                   className="sfield resize-none"
                 />
               </Field>
@@ -180,19 +184,19 @@ function SettingsPage() {
 
           {/* ── Notifications ── */}
           <section className="bg-card border border-border rounded-2xl p-6">
-            <h2 className="font-bold mb-4">Notification preferences</h2>
+            <h2 className="font-bold mb-4">{t("notificationPrefs")}</h2>
             <div className="space-y-3">
-              <Toggle label="Email notifications" checked={notifyEmail} onChange={setNotifyEmail} />
-              <Toggle label="Push notifications" checked={notifyPush} onChange={setNotifyPush} />
+              <Toggle label={t("emailNotifications")} checked={notifyEmail} onChange={setNotifyEmail} />
+              <Toggle label={t("pushNotifications")} checked={notifyPush} onChange={setNotifyPush} />
             </div>
           </section>
 
           {/* ── My activity ── */}
           <section className="bg-card border border-border rounded-2xl p-6">
-            <h2 className="font-bold mb-4">My reports</h2>
+            <h2 className="font-bold mb-4">{t("myActivity")}</h2>
             {myReports.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                You haven't submitted any reports yet.
+                {t("noReportsSettings")}
               </p>
             ) : (
               <ul className="divide-y divide-border">
@@ -214,30 +218,30 @@ function SettingsPage() {
               onClick={save}
               className="px-6 py-2.5 rounded-lg bg-primary text-primary-foreground font-medium hover:opacity-90"
             >
-              Save Changes
+              {t("saveChanges")}
             </button>
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <button className="px-5 py-2.5 rounded-lg border border-destructive/50 text-destructive font-medium flex items-center gap-2 hover:bg-destructive/5">
-                  <LogOut className="w-4 h-4" /> Log out
+                  <LogOut className="w-4 h-4" /> {t("logOut")}
                 </button>
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Log out?</AlertDialogTitle>
+                  <AlertDialogTitle>{t("logOutTitle")}</AlertDialogTitle>
                   <AlertDialogDescription>
-                    Are you sure you want to log out of IssueSnap?
+                    {t("logOutConfirm")}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
                   <AlertDialogAction
                     onClick={() => {
                       logout();
                       navigate({ to: "/" });
                     }}
                   >
-                    Log out
+                    {t("logOut")}
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>

@@ -14,6 +14,7 @@ import {
   timeAgo,
 } from "@/lib/store";
 import { toast } from "sonner";
+import { useT } from "@/lib/i18n";
 
 type SortBy = "newest" | "upvoted" | "critical" | "rating";
 type DateRange = "all" | "today" | "week" | "month";
@@ -46,6 +47,7 @@ function Feed() {
   const navigate = Route.useNavigate();
   const { reports, upvote, downvote, flagSpam } = useReports();
   const { user, addPoints } = useAuth();
+  const t = useT();
 
   const voteCooldowns = useRef<Record<string, number>>({});
   const COOLDOWN_MS = 1500;
@@ -139,12 +141,12 @@ function Feed() {
   return (
     <AppShell>
       <div className="flex items-center justify-between mb-4 gap-4 flex-wrap">
-        <h1 className="text-2xl font-bold">Issue Feed</h1>
+        <h1 className="text-2xl font-bold">{t("communityFeed")}</h1>
         <Link
           to="/report"
           className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90"
         >
-          + New Issue
+          {t("newIssue")}
         </Link>
       </div>
 
@@ -156,7 +158,7 @@ function Feed() {
             <input
               value={search.q}
               onChange={(e) => setParam({ q: e.target.value })}
-              placeholder="Search title or description..."
+              placeholder={t("searchPlaceholder")}
               className="w-full h-10 pl-9 pr-3 rounded-md border border-border bg-background text-sm"
             />
           </div>
@@ -164,7 +166,7 @@ function Feed() {
             value={search.category || ""}
             onChange={(v) => setParam({ category: v as Category | "" })}
           >
-            <option value="">All Categories</option>
+            <option value="">{t("allCategories")}</option>
             {CATEGORIES.map((c) => (
               <option key={c} value={c}>
                 {c}
@@ -175,7 +177,7 @@ function Feed() {
             value={search.status || ""}
             onChange={(v) => setParam({ status: v as IssueStatus | "" })}
           >
-            <option value="">All Status</option>
+            <option value="">{t("allStatus")}</option>
             <option value="Pending">Pending</option>
             <option value="In Progress">In Progress</option>
             <option value="Resolved">Resolved</option>
@@ -184,7 +186,7 @@ function Feed() {
             value={search.urgency || ""}
             onChange={(v) => setParam({ urgency: v as Urgency | "" })}
           >
-            <option value="">All Urgency</option>
+            <option value="">{t("allUrgency")}</option>
             {(["Low", "Medium", "High", "Critical"] as Urgency[]).map((u) => (
               <option key={u} value={u}>
                 {u}
@@ -201,12 +203,12 @@ function Feed() {
               className={`px-3 py-1 rounded-full text-xs ${(search.range || "all") === r ? "bg-primary text-primary-foreground" : "bg-muted text-foreground"}`}
             >
               {r === "all"
-                ? "All Time"
+                ? t("allTime")
                 : r === "today"
-                  ? "Today"
+                  ? t("today")
                   : r === "week"
-                    ? "This Week"
-                    : "This Month"}
+                    ? t("thisWeek")
+                    : t("thisMonth")}
             </button>
           ))}
           <span className="text-xs text-muted-foreground ml-4">Sort:</span>
@@ -217,12 +219,12 @@ function Feed() {
               className={`px-3 py-1 rounded-full text-xs ${(search.sort || "newest") === s ? "bg-primary text-primary-foreground" : "bg-muted text-foreground"}`}
             >
               {s === "newest"
-                ? "Newest"
+                ? t("sortNewest")
                 : s === "upvoted"
-                  ? "Most Upvoted"
+                  ? t("sortUpvoted")
                   : s === "critical"
-                    ? "Most Critical"
-                    : "Auto Rating"}
+                    ? t("sortCritical")
+                    : t("sortRating")}
             </button>
           ))}
         </div>
@@ -244,7 +246,7 @@ function Feed() {
       {filtered.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-24 text-center text-muted-foreground bg-card border border-border rounded-2xl">
           <Inbox className="w-14 h-14 mb-4 opacity-30" />
-          <p className="text-lg font-semibold">No issues match your filters.</p>
+          <p className="text-lg font-semibold">{t("noIssues")}</p>
           <Link
             to="/report"
             className="mt-5 px-5 py-2.5 rounded-full bg-primary text-primary-foreground text-sm font-medium hover:opacity-90"
