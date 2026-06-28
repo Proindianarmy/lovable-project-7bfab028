@@ -348,12 +348,13 @@ function Landing() {
           )}
         </div>
 
-        {/* India map */}
-        <div className="relative max-w-sm mx-auto w-full">
-          <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-primary/10 to-primary/5" />
-          <div className="relative p-6">
-            <IndiaMapSVG />
-          </div>
+        {/* App logo */}
+        <div className="relative max-w-xs mx-auto w-full flex items-center justify-center">
+          <img
+            src="/logo.png"
+            alt="IssueSnap"
+            className="w-64 h-64 object-contain drop-shadow-2xl"
+          />
         </div>
       </section>
 

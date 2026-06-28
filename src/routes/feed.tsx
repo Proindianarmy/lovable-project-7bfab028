@@ -311,7 +311,8 @@ function Feed() {
                       </span>
                     </div>
                     <p className="text-sm text-muted-foreground mt-1.5 line-clamp-2">
-                      {r.description}
+                      {/* Strip any accidentally stored data URIs from legacy reports */}
+                      {r.description.startsWith("data:") ? "[Photo attached]" : r.description}
                     </p>
                     <div className="flex items-center gap-3 text-xs text-muted-foreground mt-2 flex-wrap">
                       <span className="flex items-center gap-1">

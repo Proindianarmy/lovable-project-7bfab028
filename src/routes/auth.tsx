@@ -10,7 +10,7 @@ import {
   RefreshCw,
   CheckCircle2,
 } from "lucide-react";
-import { ADMIN_EMAIL, ADMIN_PASSWORD, ADMIN_NAME } from "@/lib/store";
+import { ADMIN_EMAIL, ADMIN_PASSWORD, ADMIN_NAME, useAuth } from "@/lib/store";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({ meta: [{ title: "Sign In — IssueSnap" }] }),
@@ -78,12 +78,16 @@ async function sendOtpEmail(
     user_id: publicKey,
     accessToken: publicKey,
     template_params: {
-      to_email: toEmail,
-      email: toEmail,
-      otp_code: otp,
-      otp: otp,
-      passcode: otp,
-      expires_in: "10 minutes",
+      // Cover every variable name your EmailJS templates might use
+      to_email: toEmail, // {{to_email}}
+      email: toEmail, // {{email}}
+      user_email: toEmail, // {{user_email}}
+      verify_otp: otp, // {{verify_otp}}  ← your verify template
+      reset_otp: otp, // {{reset_otp}}   ← your reset template
+      otp_code: otp, // {{otp_code}}
+      otp: otp, // {{otp}}
+      passcode: otp, // {{passcode}}
+      expires_in: "10 minutes", // {{expires_in}}
     },
   };
 
@@ -172,6 +176,7 @@ function OtpTimer({ seconds, onExpired }: { seconds: number; onExpired: () => vo
 
 function AuthPage() {
   const navigate = useNavigate();
+  const { loginUser } = useAuth();
   const [mode, setMode] = useState<Mode>("signin");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -195,6 +200,8 @@ function AuthPage() {
     localStorage.setItem("isLoggedIn", "true");
     localStorage.setItem("userEmail", email);
     localStorage.setItem("userName", userName);
+    // Update React auth state immediately — no reload needed
+    loginUser(email);
     navigate({ to: "/dashboard" });
   };
 
