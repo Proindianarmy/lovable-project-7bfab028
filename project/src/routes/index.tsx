@@ -88,7 +88,7 @@ function Landing() {
         <div className="max-w-6xl mx-auto px-6 h-20 flex items-center justify-between">
           {/* Logo */}
           <div className="flex items-center gap-2 text-2xl font-bold text-primary">
-            <div className="w-9 h-9 overflow-hidden">
+            <div className="w-10 h-10 overflow-hidden rounded-xl">
               <img src="/logo.png" alt="IssueSnap Logo" className="w-full h-full object-contain" />
             </div>
             IssueSnap

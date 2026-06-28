@@ -12,6 +12,7 @@ import {
   Move,
 } from "lucide-react";
 import { requireAuth } from "@/lib/auth-guard";
+import { useT } from "@/lib/i18n";
 import { useEffect, useRef, useState, useCallback } from "react";
 import {
   CATEGORIES,
@@ -79,10 +80,12 @@ function InteractiveMap({
   lat,
   lng,
   onPin,
+  tapLabel,
 }: {
   lat?: number;
   lng?: number;
   onPin: (lat: number, lng: number) => void;
+  tapLabel?: string;
 }) {
   const mapDivRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<LMap | null>(null);
@@ -209,7 +212,7 @@ function InteractiveMap({
       {ready && !lat && !lng && (
         <div className="absolute inset-0 pointer-events-none flex items-end justify-center pb-3">
           <span className="text-[11px] bg-black/60 text-white px-2 py-0.5 rounded-full">
-            Tap anywhere on the map to drop a pin
+            {tapLabel ?? "Tap anywhere on the map to drop a pin"}
           </span>
         </div>
       )}
@@ -222,6 +225,7 @@ function Report() {
   const { user, addPoints } = useAuth();
   const { addReport, findSimilar, upvote } = useReports();
   const { push } = useNotifications();
+  const t = useT();
 
   // Form state
   const [title, setTitle] = useState("");
@@ -281,7 +285,7 @@ function Report() {
 
   const getLocation = () => {
     if (!navigator.geolocation) {
-      toast.error("Geolocation not supported by your browser.");
+      toast.error(t("geoNotSupported"));
       return;
     }
     setGettingLocation(true);
@@ -290,11 +294,11 @@ function Report() {
         setLat(pos.coords.latitude);
         setLng(pos.coords.longitude);
         setGettingLocation(false);
-        toast.success("Location updated — drag the pin to fine-tune.");
+        toast.success(t("locationUpdated"));
       },
       () => {
         setGettingLocation(false);
-        toast.error("Could not get your location. Allow location access and try again.");
+        toast.error(t("locationError"));
       },
     );
   };
@@ -360,15 +364,15 @@ function Report() {
 
   const submit = (force = false) => {
     if (!title.trim() || !description.trim() || !category || !urgency) {
-      toast.error("Please fill in all required fields.");
+      toast.error(t("fillRequired"));
       return;
     }
     if (!state || !city) {
-      toast.error("Location is required. Please select a state and city.");
+      toast.error(t("locationRequired"));
       return;
     }
     if (pincode && pincodeValid === false) {
-      toast.error("Please enter a valid 6-digit Indian pincode.");
+      toast.error(t("pincodeInvalid"));
       return;
     }
     const spam = detectSpam(title, description);
@@ -420,22 +424,22 @@ function Report() {
   };
 
   return (
-    <AppShell title="Report a New Civic Issue">
+    <AppShell title={t("reportNewIssue")}>
       <div className="grid lg:grid-cols-3 gap-6">
         {/* Panel 1 — Issue Details */}
-        <Panel step={1} title="Issue Details">
-          <Field label="Title *">
+        <Panel step={1} title={t("issueDetails")}>
+          <Field label={`${t("title")} *`}>
             <input
               value={title}
               onChange={(e) => {
                 setTitle(e.target.value);
                 onTextChange(e.target.value, description);
               }}
-              placeholder="Brief description of the issue"
+              placeholder={t("titlePlaceholder")}
               className="inp"
             />
           </Field>
-          <Field label="Description *">
+          <Field label={`${t("description")} *`}>
             <textarea
               rows={5}
               value={description}
@@ -443,18 +447,18 @@ function Report() {
                 setDescription(e.target.value);
                 onTextChange(title, e.target.value);
               }}
-              placeholder="Describe the problem in detail (min. 20 characters)."
+              placeholder={t("descriptionPlaceholder")}
               className="inp resize-none"
             />
           </Field>
-          <Field label="Category *">
+          <Field label={`${t("category")} *`}>
             <select
               value={category}
               onChange={(e) => setCategory(e.target.value as Category)}
               className="inp"
             >
               <option value="" disabled>
-                Select a category
+                {t("selectCategory")}
               </option>
               {CATEGORIES.map((c) => (
                 <option key={c} value={c}>
@@ -463,14 +467,14 @@ function Report() {
               ))}
             </select>
           </Field>
-          <Field label="Urgency *">
+          <Field label={`${t("urgency")} *`}>
             <select
               value={urgency}
               onChange={(e) => setUrgency(e.target.value as Urgency)}
               className="inp"
             >
               <option value="" disabled>
-                Select urgency
+                {t("selectUrgency")}
               </option>
               {(["Low", "Medium", "High", "Critical"] as Urgency[]).map((u) => (
                 <option key={u} value={u}>
@@ -484,7 +488,7 @@ function Report() {
               <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
               <div>
                 <p className="font-semibold mb-1">
-                  Your report may be flagged (score {spamInfo.score}/10):
+                  {t("spamWarning")} ({spamInfo.score}/10):
                 </p>
                 <ul className="list-disc list-inside space-y-0.5">
                   {spamInfo.reasons.map((r) => (
@@ -497,10 +501,9 @@ function Report() {
         </Panel>
 
         {/* Panel 2 — Photos */}
-        <Panel step={2} title={`Photos (${photos.length}/${MAX_PHOTOS})`}>
+        <Panel step={2} title={`${t("photos")} (${photos.length}/${MAX_PHOTOS})`}>
           <p className="text-xs text-muted-foreground mb-2">
-            Select up to {MAX_PHOTOS} real photos. AI-generated or hand-drawn images are
-            automatically rejected.
+            {t("photosDesc")}
           </p>
           <div className="grid grid-cols-3 gap-2 mb-3">
             {photos.map((p, i) => (
@@ -527,14 +530,14 @@ function Report() {
                   }}
                 />
                 <ImagePlus className="w-7 h-7 text-muted-foreground" />
-                <span className="text-[10px] text-muted-foreground mt-1">Add Photo</span>
+                <span className="text-[10px] text-muted-foreground mt-1">{t("addPhoto")}</span>
               </label>
             )}
           </div>
 
           {analyzingIdx !== null && (
             <div className="flex items-center gap-2 text-sm text-primary p-2">
-              <Loader2 className="w-4 h-4 animate-spin" /> Analyzing image with AI...
+              <Loader2 className="w-4 h-4 animate-spin" /> {t("analyzingImage")}
             </div>
           )}
 
@@ -560,8 +563,8 @@ function Report() {
         </Panel>
 
         {/* Panel 3 — Location */}
-        <Panel step={3} title="Location">
-          <Field label="State *">
+        <Panel step={3} title={t("location")}>
+          <Field label={`${t("state")} *`}>
             <select
               value={state}
               onChange={(e) => {
@@ -571,7 +574,7 @@ function Report() {
               className="inp"
             >
               <option value="" disabled>
-                Select state / UT
+                {t("selectState")}
               </option>
               {INDIA_STATES.map((s) => (
                 <option key={s} value={s}>
@@ -581,7 +584,7 @@ function Report() {
             </select>
           </Field>
 
-          <Field label="City *">
+          <Field label={`${t("city")} *`}>
             <select
               value={city}
               onChange={(e) => setCity(e.target.value)}
@@ -589,7 +592,7 @@ function Report() {
               disabled={!state}
             >
               <option value="" disabled>
-                {state ? "Select city" : "Select state first"}
+                {state ? t("selectCity") : t("selectStateFirst")}
               </option>
               {cities.map((c) => (
                 <option key={c} value={c}>
@@ -599,7 +602,7 @@ function Report() {
             </select>
           </Field>
 
-          <Field label="Pincode">
+          <Field label={t("pincode")}>
             <div className="relative">
               <input
                 value={pincode}
@@ -608,7 +611,7 @@ function Report() {
                   const digits = e.target.value.replace(/\D/g, "").slice(0, 6);
                   setPincode(digits);
                 }}
-                placeholder="6-digit Indian pincode (optional)"
+                placeholder={t("pincodePlaceholder")}
                 inputMode="numeric"
                 pattern="[0-9]*"
                 className={`inp pr-8 ${
@@ -634,13 +637,16 @@ function Report() {
             )}
           </Field>
 
-          <Field label="Address / Landmark">
+          <Field label={t("landmark")}>
             <div className="relative">
               <MapPin className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
               <input
                 value={address}
-                onChange={(e) => setAddress(e.target.value)}
-                placeholder="Street address, intersection, or landmark"
+                onChange={(e) => {
+                  const { text } = censorText(e.target.value);
+                  setAddress(text);
+                }}
+                placeholder={t("landmarkPlaceholder")}
                 className="inp pl-9"
               />
             </div>
@@ -661,26 +667,26 @@ function Report() {
               >
                 {gettingLocation ? (
                   <>
-                    <Loader2 className="w-3 h-3 animate-spin" /> Locating…
+                    <Loader2 className="w-3 h-3 animate-spin" /> {t("locating")}
                   </>
                 ) : (
                   <>
-                    <Navigation className="w-3 h-3" /> Use GPS
+                    <Navigation className="w-3 h-3" /> {t("useGPS")}
                   </>
                 )}
               </button>
             </div>
 
-            <InteractiveMap lat={lat} lng={lng} onPin={handleMapPin} />
+            <InteractiveMap lat={lat} lng={lng} onPin={handleMapPin} tapLabel={t("tapMapToPin")} />
 
             {lat && lng ? (
               <p className="text-[10px] text-muted-foreground mt-1.5 text-center">
                 📍 {lat.toFixed(5)}, {lng.toFixed(5)} —{" "}
-                <span className="text-primary">click map or drag pin to adjust</span>
+                <span className="text-primary">{t("clickOrDragPin")}</span>
               </p>
             ) : (
               <p className="text-[10px] text-muted-foreground mt-1.5 text-center">
-                No pin set yet. Allow GPS or click on the map above.
+                {t("noPinSet")}
               </p>
             )}
           </div>
@@ -689,7 +695,7 @@ function Report() {
             onClick={() => submit(false)}
             className="mt-2 w-full py-3 rounded-lg bg-primary text-primary-foreground font-medium hover:opacity-90 transition-opacity"
           >
-            Submit Report
+            {t("submitReport")}
           </button>
         </Panel>
       </div>
@@ -719,7 +725,7 @@ function Report() {
                 navigate({ to: "/issue/$id", params: { id: dupDialog!.existingId } });
               }}
             >
-              View Existing
+              {t("viewExisting")}
             </button>
             <button
               className="px-4 py-2 rounded-md bg-secondary text-secondary-foreground text-sm"
@@ -732,7 +738,7 @@ function Report() {
                 }
               }}
             >
-              Upvote Existing
+              {t("upvoteExisting")}
             </button>
             <button
               className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm"
@@ -741,7 +747,7 @@ function Report() {
                 submit(true);
               }}
             >
-              Submit Anyway
+              {t("submitAnyway")}
             </button>
           </DialogFooter>
         </DialogContent>
@@ -762,7 +768,7 @@ function Report() {
               <X className="w-4 h-4" />
             </button>
             <div className="text-5xl mb-4">🎉</div>
-            <h2 className="text-2xl font-bold mb-2">Congratulations!</h2>
+            <h2 className="text-2xl font-bold mb-2">{t("congratulations")}</h2>
             <p className="text-muted-foreground text-sm mb-1">
               Your report <span className="font-semibold text-foreground">"{submittedTitle}"</span>{" "}
               is now live.
@@ -783,7 +789,7 @@ function Report() {
               }}
               className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground font-medium hover:opacity-90"
             >
-              View in Feed
+              {t("viewInFeed")}
             </button>
           </div>
         </div>

@@ -4,6 +4,7 @@ import { requireAuth } from "@/lib/auth-guard";
 import { useReports, useAuth, levelFor } from "@/lib/store";
 import { Trophy, Medal } from "lucide-react";
 import { useMemo } from "react";
+import { useT } from "@/lib/i18n";
 
 export const Route = createFileRoute("/leaderboard")({
   head: () => ({ meta: [{ title: "Leaderboard — IssueSnap" }] }),

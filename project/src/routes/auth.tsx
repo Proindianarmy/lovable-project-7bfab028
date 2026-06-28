@@ -346,14 +346,8 @@ function AuthPage() {
       <header className="border-b border-border">
         <div className="max-w-6xl mx-auto px-6 h-20 flex items-center">
           <Link to="/" className="flex items-center gap-2 text-2xl font-bold text-primary">
-            <div className="w-9 h-9 grid place-items-center rounded-lg bg-primary/10 border border-primary/30 p-0.5">
-              <svg viewBox="0 0 80 90" xmlns="http://www.w3.org/2000/svg" className="w-full h-full">
-                <path
-                  d="M28,4 L34,2 L42,3 L50,2 L57,4 L63,8 L68,14 L71,22 L72,30 L71,38 L68,44 L71,50 L72,56 L70,62 L66,68 L60,74 L54,80 L48,84 L42,86 L36,84 L30,80 L24,74 L18,68 L14,62 L12,56 L12,50 L12,44 L12,38 L13,30 L15,22 L19,14 L24,8 Z"
-                  fill="hsl(var(--primary))"
-                  opacity="0.9"
-                />
-              </svg>
+            <div className="w-10 h-10 overflow-hidden rounded-xl">
+              <img src="/logo.png" alt="IssueSnap Logo" className="w-full h-full object-contain" />
             </div>
             IssueSnap
           </Link>

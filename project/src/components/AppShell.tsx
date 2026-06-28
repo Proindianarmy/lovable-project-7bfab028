@@ -286,7 +286,7 @@ export function AppShell({ children, title }: { children: ReactNode; title?: str
     <div className="flex min-h-screen bg-muted/30">
       <aside className="hidden md:flex w-64 flex-col bg-sidebar text-sidebar-foreground">
         <Link to="/" className="flex items-center gap-2 px-6 py-5 text-xl font-bold tracking-tight">
-          <div className="w-9 h-9 overflow-hidden">
+          <div className="w-10 h-10 overflow-hidden rounded-xl">
             <img src="/logo.png" alt="IssueSnap Logo" className="w-full h-full object-contain" />
           </div>
           IssueSnap

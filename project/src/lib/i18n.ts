@@ -196,6 +196,23 @@ const translations = {
   submit: { en: "Submit", hi: "सबमिट करें" },
   logOutConfirm: { en: "Are you sure you want to log out of IssueSnap?", hi: "क्या आप IssueSnap से लॉग आउट करना चाहते हैं?" },
   logOutTitle: { en: "Log out?", hi: "लॉग आउट करें?" },
+  // Report page extra
+  fillRequired: { en: "Please fill in all required fields.", hi: "कृपया सभी आवश्यक फ़ील्ड भरें।" },
+  locationRequired: { en: "Location is required. Please select a state and city.", hi: "स्थान आवश्यक है। कृपया राज्य और शहर चुनें।" },
+  locationUpdated: { en: "Location updated — drag the pin to fine-tune.", hi: "स्थान अपडेट हुआ — पिन खींचकर सुधारें।" },
+  locationError: { en: "Could not get your location. Allow location access and try again.", hi: "स्थान नहीं मिला। स्थान पहुंच अनुमति दें और पुनः प्रयास करें।" },
+  geoNotSupported: { en: "Geolocation not supported by your browser.", hi: "आपका ब्राउज़र जियोलोकेशन का समर्थन नहीं करता।" },
+  spamWarning: { en: "Your report may be flagged", hi: "आपकी रिपोर्ट को फ़्लैग किया जा सकता है" },
+  noPhotosMax: { en: "Maximum 5 photos allowed per report.", hi: "प्रति रिपोर्ट अधिकतम 5 फ़ोटो अनुमत हैं।" },
+  similarIssueFound: { en: "Similar issue already reported", hi: "समान समस्या पहले ही रिपोर्ट की जा चुकी है" },
+  tapMapToPin: { en: "Tap anywhere on the map to drop a pin", hi: "पिन डालने के लिए नक्शे पर कहीं भी टैप करें" },
+  clickOrDragPin: { en: "click map or drag pin to adjust", hi: "नक्शे पर क्लिक करें या पिन खींचें" },
+  noPinSet: { en: "No pin set yet. Use GPS or click the map above.", hi: "अभी कोई पिन नहीं। GPS उपयोग करें या नक्शे पर क्लिक करें।" },
+  photosDesc: { en: "Select up to 5 real photos. AI-generated or hand-drawn images are automatically rejected.", hi: "अधिकतम 5 असली फ़ोटो चुनें। AI-निर्मित या हाथ से बनाई छवियां स्वतः अस्वीकार की जाएंगी।" },
+  reportsThisWeek: { en: "Reports This Week", hi: "इस सप्ताह की रिपोर्ट्स" },
+  byCategory: { en: "By Category", hi: "श्रेणी अनुसार" },
+  byStatus: { en: "By Status", hi: "स्थिति अनुसार" },
+  categoryVolume: { en: "Category Volume", hi: "श्रेणी वॉल्यूम" },
 } as const;
 
 export type TKey = keyof typeof translations;
