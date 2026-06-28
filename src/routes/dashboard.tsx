@@ -3,6 +3,7 @@ import { AppShell, StatusBadge } from "@/components/AppShell";
 import { Inbox, PlusCircle, Trophy } from "lucide-react";
 import { requireAuth } from "@/lib/auth-guard";
 import { useAuth, useReports, levelFor, timeAgo, computeRating } from "@/lib/store";
+import { useT } from "@/lib/i18n";
 
 export const Route = createFileRoute("/dashboard")({
   head: () => ({ meta: [{ title: "Issue Dashboard — IssueSnap" }] }),
@@ -13,6 +14,7 @@ export const Route = createFileRoute("/dashboard")({
 function Dashboard() {
   const { user } = useAuth();
   const { reports } = useReports();
+  const t = useT();
   if (!user) return null;
 
   const mine = reports.filter((r) => r.reporterId === user.id);
@@ -20,7 +22,7 @@ function Dashboard() {
   const lvl = levelFor(user.points);
 
   return (
-    <AppShell title={`Welcome back, ${user.name}`}>
+    <AppShell title={`${t("welcomeBack")}, ${user.name}`}>
       <div className="grid lg:grid-cols-3 gap-6">
         <Card title="My Reports" className="lg:col-span-2">
           {mine.length === 0 ? (

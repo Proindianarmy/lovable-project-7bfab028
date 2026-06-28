@@ -10,7 +10,7 @@ import {
   RefreshCw,
   CheckCircle2,
 } from "lucide-react";
-import { ADMIN_EMAIL, ADMIN_PASSWORD, ADMIN_NAME, useAuth } from "@/lib/store";
+import { ADMIN_EMAIL, ADMIN_PASSWORD, ADMIN_NAME } from "@/lib/store";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({ meta: [{ title: "Sign In — IssueSnap" }] }),
@@ -78,16 +78,12 @@ async function sendOtpEmail(
     user_id: publicKey,
     accessToken: publicKey,
     template_params: {
-      // Cover every variable name your EmailJS templates might use
-      to_email: toEmail, // {{to_email}}
-      email: toEmail, // {{email}}
-      user_email: toEmail, // {{user_email}}
-      verify_otp: otp, // {{verify_otp}}  ← your verify template
-      reset_otp: otp, // {{reset_otp}}   ← your reset template
-      otp_code: otp, // {{otp_code}}
-      otp: otp, // {{otp}}
-      passcode: otp, // {{passcode}}
-      expires_in: "10 minutes", // {{expires_in}}
+      to_email: toEmail,
+      email: toEmail,
+      otp_code: otp,
+      otp: otp,
+      passcode: otp,
+      expires_in: "10 minutes",
     },
   };
 
@@ -176,7 +172,6 @@ function OtpTimer({ seconds, onExpired }: { seconds: number; onExpired: () => vo
 
 function AuthPage() {
   const navigate = useNavigate();
-  const { loginUser } = useAuth();
   const [mode, setMode] = useState<Mode>("signin");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -200,8 +195,6 @@ function AuthPage() {
     localStorage.setItem("isLoggedIn", "true");
     localStorage.setItem("userEmail", email);
     localStorage.setItem("userName", userName);
-    // Update React auth state immediately — no reload needed
-    loginUser(email);
     navigate({ to: "/dashboard" });
   };
 
@@ -353,14 +346,8 @@ function AuthPage() {
       <header className="border-b border-border">
         <div className="max-w-6xl mx-auto px-6 h-20 flex items-center">
           <Link to="/" className="flex items-center gap-2 text-2xl font-bold text-primary">
-            <div className="w-9 h-9 grid place-items-center rounded-lg bg-primary/10 border border-primary/30 p-0.5">
-              <svg viewBox="0 0 80 90" xmlns="http://www.w3.org/2000/svg" className="w-full h-full">
-                <path
-                  d="M28,4 L34,2 L42,3 L50,2 L57,4 L63,8 L68,14 L71,22 L72,30 L71,38 L68,44 L71,50 L72,56 L70,62 L66,68 L60,74 L54,80 L48,84 L42,86 L36,84 L30,80 L24,74 L18,68 L14,62 L12,56 L12,50 L12,44 L12,38 L13,30 L15,22 L19,14 L24,8 Z"
-                  fill="hsl(var(--primary))"
-                  opacity="0.9"
-                />
-              </svg>
+            <div className="w-10 h-10 overflow-hidden rounded-xl">
+              <img src="/logo.png" alt="IssueSnap Logo" className="w-full h-full object-contain" />
             </div>
             IssueSnap
           </Link>

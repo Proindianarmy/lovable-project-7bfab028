@@ -4,6 +4,7 @@ import { requireAuth } from "@/lib/auth-guard";
 import { useNotifications, timeAgo } from "@/lib/store";
 import { Bell, CheckCheck, X } from "lucide-react";
 import { useState } from "react";
+import { useT } from "@/lib/i18n";
 
 export const Route = createFileRoute("/notifications")({
   head: () => ({ meta: [{ title: "Notifications — IssueSnap" }] }),
@@ -13,6 +14,7 @@ export const Route = createFileRoute("/notifications")({
 
 function NotificationsPage() {
   const { notifications, markRead, markAllRead, unread } = useNotifications();
+  const t = useT();
   // Track dismissed notification ids so user can X them away
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
 
@@ -24,7 +26,7 @@ function NotificationsPage() {
   };
 
   return (
-    <AppShell title="Notifications">
+    <AppShell title={t("notificationsTitle")}>
       <div className="bg-card border border-border rounded-2xl divide-y divide-border">
         <div className="flex items-center justify-between px-5 py-3">
           <span className="text-sm text-muted-foreground">{unread} unread</span>

@@ -1,7 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import {
-  TrendingUp,
-  Handshake,
   MapPin,
   CheckCircle2,
   Users,
@@ -27,150 +25,6 @@ export const Route = createFileRoute("/")({
   }),
   component: Landing,
 });
-
-/* ── India SVG Map ─────────────────────────────────────────────────── */
-function IndiaMapSVG() {
-  return (
-    <svg
-      viewBox="0 0 400 460"
-      xmlns="http://www.w3.org/2000/svg"
-      className="w-full h-full drop-shadow-xl"
-    >
-      {/* Ocean / background */}
-      <rect width="400" height="460" fill="transparent" />
-
-      {/* India body — simplified outline path */}
-      <path
-        d="
-          M 140,18 L 165,12 L 192,14 L 220,10 L 248,16 L 272,24
-          L 290,36 L 305,52 L 315,70 L 320,90 L 325,112
-          L 330,132 L 332,152 L 328,168 L 320,180
-          L 330,196 L 336,212 L 332,226 L 320,238
-          L 308,250 L 295,264 L 280,278 L 264,292
-          L 248,306 L 230,318 L 214,328 L 198,336
-          L 184,342 L 172,348 L 160,352 L 150,356
-          L 140,352 L 128,344 L 116,332 L 104,318
-          L 92,302 L 82,286 L 74,270 L 68,254
-          L 64,238 L 62,222 L 60,206 L 60,190
-          L 58,174 L 56,158 L 56,142 L 58,126
-          L 62,110 L 68,94 L 76,80 L 86,66
-          L 98,54 L 112,42 L 128,30 Z
-        "
-        fill="hsl(var(--primary) / 0.15)"
-        stroke="hsl(var(--primary))"
-        strokeWidth="2"
-        strokeLinejoin="round"
-      />
-
-      {/* Sri Lanka */}
-      <ellipse
-        cx="215"
-        cy="390"
-        rx="14"
-        ry="20"
-        fill="hsl(var(--primary) / 0.10)"
-        stroke="hsl(var(--primary))"
-        strokeWidth="1.5"
-      />
-
-      {/* Andaman & Nicobar (dots) */}
-      <circle
-        cx="340"
-        cy="200"
-        r="5"
-        fill="hsl(var(--primary) / 0.20)"
-        stroke="hsl(var(--primary))"
-        strokeWidth="1"
-      />
-      <circle
-        cx="345"
-        cy="220"
-        r="4"
-        fill="hsl(var(--primary) / 0.20)"
-        stroke="hsl(var(--primary))"
-        strokeWidth="1"
-      />
-      <circle
-        cx="348"
-        cy="240"
-        r="3"
-        fill="hsl(var(--primary) / 0.15)"
-        stroke="hsl(var(--primary))"
-        strokeWidth="1"
-      />
-
-      {/* State dividers — subtle dashed lines */}
-      {[
-        "M 190,14 L 194,340",
-        "M 130,30 L 290,260",
-        "M 68,154 L 330,154",
-        "M 70,220 L 332,220",
-        "M 80,280 L 295,280",
-      ].map((d, i) => (
-        <path
-          key={i}
-          d={d}
-          stroke="hsl(var(--primary))"
-          strokeWidth="0.4"
-          strokeDasharray="6,8"
-          opacity="0.25"
-        />
-      ))}
-
-      {/* City dots */}
-      {[
-        { x: 162, y: 290, label: "Mumbai" },
-        { x: 194, y: 168, label: "Delhi" },
-        { x: 228, y: 310, label: "Bengaluru" },
-        { x: 240, y: 192, label: "Kolkata" },
-        { x: 224, y: 260, label: "Hyderabad" },
-        { x: 176, y: 322, label: "Chennai" },
-        { x: 162, y: 220, label: "Jaipur" },
-      ].map(({ x, y, label }) => (
-        <g key={label}>
-          <circle cx={x} cy={y} r="4" fill="hsl(var(--primary))" opacity="0.85" />
-          <circle cx={x} cy={y} r="7" fill="hsl(var(--primary))" opacity="0.20" />
-          <text
-            x={x + 9}
-            y={y + 4}
-            fontSize="9"
-            fill="hsl(var(--primary))"
-            opacity="0.9"
-            fontWeight="600"
-          >
-            {label}
-          </text>
-        </g>
-      ))}
-
-      {/* IssueSnap ping animation rings on Delhi */}
-      <circle
-        cx="194"
-        cy="168"
-        r="12"
-        fill="none"
-        stroke="hsl(var(--primary))"
-        strokeWidth="1"
-        opacity="0.5"
-      >
-        <animate attributeName="r" values="7;18;7" dur="2.5s" repeatCount="indefinite" />
-        <animate attributeName="opacity" values="0.6;0;0.6" dur="2.5s" repeatCount="indefinite" />
-      </circle>
-
-      {/* Label */}
-      <text
-        x="200"
-        y="448"
-        textAnchor="middle"
-        fontSize="11"
-        fill="hsl(var(--muted-foreground))"
-        fontWeight="500"
-      >
-        India
-      </text>
-    </svg>
-  );
-}
 
 /* ── Language Switcher ──────────────────────────────────────────────── */
 function LangSwitcher() {
@@ -232,16 +86,10 @@ function Landing() {
       {/* Header */}
       <header className="border-b border-border sticky top-0 bg-background/90 backdrop-blur z-30">
         <div className="max-w-6xl mx-auto px-6 h-20 flex items-center justify-between">
-          {/* Logo — India map icon instead of generic Map icon */}
+          {/* Logo */}
           <div className="flex items-center gap-2 text-2xl font-bold text-primary">
-            <div className="w-9 h-9 grid place-items-center rounded-lg bg-primary/10 border border-primary/30 overflow-hidden p-0.5">
-              <svg viewBox="0 0 80 90" xmlns="http://www.w3.org/2000/svg" className="w-full h-full">
-                <path
-                  d="M28,4 L34,2 L42,3 L50,2 L57,4 L63,8 L68,14 L71,22 L72,30 L71,38 L68,44 L71,50 L72,56 L70,62 L66,68 L60,74 L54,80 L48,84 L42,86 L36,84 L30,80 L24,74 L18,68 L14,62 L12,56 L12,50 L12,44 L12,38 L13,30 L15,22 L19,14 L24,8 Z"
-                  fill="hsl(var(--primary))"
-                  opacity="0.9"
-                />
-              </svg>
+            <div className="w-10 h-10 overflow-hidden rounded-xl">
+              <img src="/logo.png" alt="IssueSnap Logo" className="w-full h-full object-contain" />
             </div>
             IssueSnap
           </div>
@@ -348,13 +196,16 @@ function Landing() {
           )}
         </div>
 
-        {/* App logo */}
-        <div className="relative max-w-xs mx-auto w-full flex items-center justify-center">
-          <img
-            src="/logo.png"
-            alt="IssueSnap"
-            className="w-64 h-64 object-contain drop-shadow-2xl"
-          />
+        {/* App Logo Display */}
+        <div className="relative max-w-sm mx-auto w-full flex items-center justify-center">
+          <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-primary/10 to-primary/5" />
+          <div className="relative p-6 flex items-center justify-center">
+            <img
+              src="/logo.png"
+              alt="IssueSnap"
+              className="w-full max-w-[320px] object-contain drop-shadow-2xl"
+            />
+          </div>
         </div>
       </section>
 
@@ -428,8 +279,5 @@ function Step({ icon, title, desc }: { icon: string; title: string; desc: string
   );
 }
 
-// Remove unused imports warning suppressors
-const _TrendingUp = TrendingUp;
-const _Handshake = Handshake;
-void _TrendingUp;
-void _Handshake;
+
+

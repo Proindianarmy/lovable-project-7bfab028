@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { AppShell } from "@/components/AppShell";
 import { requireAuth } from "@/lib/auth-guard";
 import { useAuth, useReports } from "@/lib/store";
+import { useT } from "@/lib/i18n";
 import { useEffect } from "react";
 import { toast } from "sonner";
 import {
@@ -27,11 +28,11 @@ export const Route = createFileRoute("/analytics")({
 const COLORS = ["#6366f1", "#22c55e", "#f59e0b", "#ef4444", "#8b5cf6", "#14b8a6", "#f97316"];
 
 function Analytics() {
+  const t = useT();
   const { user } = useAuth();
   const { reports } = useReports();
   const navigate = useNavigate();
 
-  // Redirect non-admins away
   useEffect(() => {
     if (user && user.role !== "admin" && user.role !== "authority") {
       toast.error("Access denied. Admins only.");
@@ -41,17 +42,14 @@ function Analytics() {
 
   if (!user || (user.role !== "admin" && user.role !== "authority")) return null;
 
-  // Category breakdown
   const catMap = new Map<string, number>();
   reports.forEach((r) => catMap.set(r.category, (catMap.get(r.category) ?? 0) + 1));
   const catData = Array.from(catMap.entries()).map(([name, value]) => ({ name, value }));
 
-  // Status breakdown
   const statusMap = new Map<string, number>();
   reports.forEach((r) => statusMap.set(r.status, (statusMap.get(r.status) ?? 0) + 1));
   const statusData = Array.from(statusMap.entries()).map(([name, value]) => ({ name, value }));
 
-  // Reports per day (last 7)
   const days: { date: string; count: number }[] = [];
   for (let i = 6; i >= 0; i--) {
     const d = new Date(Date.now() - i * 86400000);
@@ -69,16 +67,16 @@ function Analytics() {
   const inProgress = reports.filter((r) => r.status === "In Progress").length;
 
   return (
-    <AppShell title="Analytics Dashboard">
+    <AppShell title={t("analyticsTitle")}>
       <div className="grid sm:grid-cols-4 gap-4 mb-6">
-        <Stat label="Total Reports" value={total} color="text-primary" />
-        <Stat label="Resolved" value={resolved} color="text-green-600 dark:text-green-400" />
-        <Stat label="In Progress" value={inProgress} color="text-blue-600 dark:text-blue-400" />
-        <Stat label="Pending" value={pending} color="text-yellow-600 dark:text-yellow-400" />
+        <Stat label={t("totalReports")} value={total} color="text-primary" />
+        <Stat label={t("resolvedReports")} value={resolved} color="text-green-600 dark:text-green-400" />
+        <Stat label={t("inProgressReports")} value={inProgress} color="text-blue-600 dark:text-blue-400" />
+        <Stat label={t("pendingReports")} value={pending} color="text-yellow-600 dark:text-yellow-400" />
       </div>
 
       <div className="grid lg:grid-cols-2 gap-6">
-        <ChartCard title="Reports This Week">
+        <ChartCard title={t("reportsThisWeek")}>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={days}>
               <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
@@ -90,18 +88,10 @@ function Analytics() {
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard title="By Category">
+        <ChartCard title={t("byCategory")}>
           <ResponsiveContainer width="100%" height={220}>
             <PieChart>
-              <Pie
-                data={catData}
-                dataKey="value"
-                nameKey="name"
-                cx="50%"
-                cy="50%"
-                outerRadius={80}
-                label
-              >
+              <Pie data={catData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label>
                 {catData.map((_, i) => (
                   <Cell key={i} fill={COLORS[i % COLORS.length]} />
                 ))}
@@ -112,18 +102,10 @@ function Analytics() {
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard title="By Status">
+        <ChartCard title={t("byStatus")}>
           <ResponsiveContainer width="100%" height={220}>
             <PieChart>
-              <Pie
-                data={statusData}
-                dataKey="value"
-                nameKey="name"
-                cx="50%"
-                cy="50%"
-                outerRadius={80}
-                label
-              >
+              <Pie data={statusData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label>
                 {statusData.map((_, i) => (
                   <Cell key={i} fill={COLORS[i % COLORS.length]} />
                 ))}
@@ -134,7 +116,7 @@ function Analytics() {
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard title="Category Volume">
+        <ChartCard title={t("categoryVolume")}>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={catData} layout="vertical">
               <CartesianGrid strokeDasharray="3 3" className="stroke-border" />

@@ -14,6 +14,7 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useT } from "@/lib/i18n";
 import { toast } from "sonner";
 
 const AUTHORITY_PASS = "admin2026";
@@ -27,6 +28,7 @@ export const Route = createFileRoute("/authority")({
 type Tab = "overview" | "pending" | "resolved" | "settings";
 
 function Authority() {
+  const t = useT();
   const { user, setRole, addPoints } = useAuth();
   const { reports, setStatus } = useReports();
   const { push } = useNotifications();

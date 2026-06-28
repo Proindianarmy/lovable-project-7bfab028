@@ -387,29 +387,29 @@ function computeSignals(img: HTMLImageElement): CanvasSignals {
 
 function classifyCanvas(sig: CanvasSignals): { isAI: boolean; score: number; reason: string } {
   /* Each signal returns a weight (0 = not fired, positive = fired toward AI/drawn).
-     Total weight is normalised to 0–1. Reject if ≥ 0.38 */
+     Total weight is normalised to 0–1. Reject if ≥ 0.52 (raised from 0.38 to reduce false positives) */
   const checks: Array<{ w: number; fire: boolean; label: string }> = [
     // Colour diversity — real photos have huge palettes
-    { w: 2.5, fire: sig.coarse4bit < 350, label: "low-coarse-colours" },
-    { w: 2.0, fire: sig.fine6bit < 900, label: "low-fine-colours" },
-    // Smoothness — AI art and drawings are too smooth
-    { w: 3.0, fire: sig.flatRatio > 0.055, label: "too-flat" },
-    { w: 2.5, fire: sig.softRatio > 0.48, label: "too-smooth" },
-    { w: 2.0, fire: sig.softRatio > 0.38 && sig.avgNoise < 18, label: "smooth+low-noise" },
-    // Micro-texture — camera sensor always adds grain
-    { w: 3.5, fire: sig.lumVar32 < 90, label: "no-micro-texture" },
-    // Block uniformity — AI art has perfectly uniform fills
-    { w: 4.0, fire: sig.lowVarBlockRatio > 0.45, label: "too-many-uniform-blocks" },
-    // High-freq energy — real photos have JPEG grain at 4×4 scale
-    { w: 3.0, fire: sig.hiFreqEnergy < 5, label: "no-hf-energy" },
-    // RGB balance — AI models output balanced palettes
-    { w: 1.5, fire: sig.rgbBalance < 10 && sig.avgNoise < 25, label: "balanced-rgb" },
-    // Saturation — hand-drawn images have very low or very uniform saturation
-    { w: 1.5, fire: sig.satVar < 0.04, label: "uniform-saturation" },
-    // Edge continuity — drawings have long straight edges (high continuity)
-    { w: 2.0, fire: sig.edgeContinuity > 0.75 && sig.flatRatio > 0.05, label: "drawing-edges" },
-    // Hard outlines + flat fills = hand-drawn
-    { w: 2.5, fire: sig.hardRatio > 0.1 && sig.flatRatio > 0.08, label: "cartoon-outline" },
+    { w: 2.0, fire: sig.coarse4bit < 280, label: "low-coarse-colours" },
+    { w: 1.5, fire: sig.fine6bit < 700, label: "low-fine-colours" },
+    // Smoothness — AI art and drawings are too smooth (tightened thresholds)
+    { w: 2.5, fire: sig.flatRatio > 0.08, label: "too-flat" },
+    { w: 2.0, fire: sig.softRatio > 0.55, label: "too-smooth" },
+    { w: 1.5, fire: sig.softRatio > 0.45 && sig.avgNoise < 14, label: "smooth+low-noise" },
+    // Micro-texture — camera sensor always adds grain (lowered threshold)
+    { w: 3.0, fire: sig.lumVar32 < 60, label: "no-micro-texture" },
+    // Block uniformity — AI art has perfectly uniform fills (tightened)
+    { w: 3.5, fire: sig.lowVarBlockRatio > 0.55, label: "too-many-uniform-blocks" },
+    // High-freq energy — real photos have JPEG grain at 4×4 scale (lowered threshold)
+    { w: 2.5, fire: sig.hiFreqEnergy < 3, label: "no-hf-energy" },
+    // RGB balance — AI models output balanced palettes (tightened)
+    { w: 1.0, fire: sig.rgbBalance < 6 && sig.avgNoise < 18, label: "balanced-rgb" },
+    // Saturation — hand-drawn images have very low or very uniform saturation (tightened)
+    { w: 1.0, fire: sig.satVar < 0.025, label: "uniform-saturation" },
+    // Edge continuity — drawings have long straight edges (tightened)
+    { w: 1.5, fire: sig.edgeContinuity > 0.85 && sig.flatRatio > 0.07, label: "drawing-edges" },
+    // Hard outlines + flat fills = hand-drawn (tightened)
+    { w: 2.0, fire: sig.hardRatio > 0.15 && sig.flatRatio > 0.1, label: "cartoon-outline" },
   ];
 
   const total = checks.reduce((s, c) => s + c.w, 0);
@@ -417,7 +417,7 @@ function classifyCanvas(sig: CanvasSignals): { isAI: boolean; score: number; rea
   const firedW = fired.reduce((s, c) => s + c.w, 0);
   const score = firedW / total;
   const reason = fired.map((c) => c.label).join(", ") || "none";
-  return { isAI: score >= 0.38, score, reason };
+  return { isAI: score >= 0.52, score, reason }; // raised threshold: 0.38 → 0.52
 }
 
 async function detectViaCanvas(dataUrl: string): Promise<{ isAI: boolean; score: number }> {
@@ -819,15 +819,34 @@ interface ReportsCtx {
 }
 const ReportsContext = createContext<ReportsCtx | null>(null);
 
+/** Strip base64 data-URIs and other garbage that may have been
+ *  accidentally saved into text fields from old buggy reports. */
+function sanitiseText(text: string | undefined | null): string {
+  if (!text) return "";
+  // If entire field is a data URI → replace with empty
+  if (/^data:[a-z]+\/[a-z+]+;base64,/i.test(text.trim())) return "";
+  // If the field contains an embedded data URI anywhere, cut it off there
+  const idx = text.indexOf("data:image/");
+  if (idx !== -1) {
+    const before = text.slice(0, idx).trim();
+    return before || "";
+  }
+  return text;
+}
+
 export function ReportsProvider({ children }: { children: ReactNode }) {
   const [reports, setReports] = useState<Report[]>([]);
 
   useEffect(() => {
-    // Migrate old reports that lack downvotes field
+    // Migrate and sanitise reports from localStorage
     const raw = load<Report[]>("reports", []);
     const migrated = raw.map((r) => ({
       ...r,
       downvotes: r.downvotes ?? [],
+      // Strip any accidentally stored base64/data-URI blobs from text fields
+      description: sanitiseText(r.description),
+      location: sanitiseText(r.location),
+      title: sanitiseText(r.title),
     }));
     setReports(migrated);
   }, []);
@@ -1294,7 +1313,37 @@ export const INDIA_CITIES_BY_STATE: Record<string, string[]> = {
   Puducherry: ["Puducherry", "Karaikal", "Mahe", "Yanam"],
 };
 
-/** Basic Indian pincode validation: 6 digits, first digit 1-9 */
+/**
+ * Real Indian pincode validation against known postal circle ranges.
+ * Ref: India Post pincode directory
+ */
 export function validatePincode(pin: string): boolean {
-  return /^[1-9][0-9]{5}$/.test(pin.trim());
+  const p = pin.trim();
+  if (!/^[1-9][0-9]{5}$/.test(p)) return false;
+  const num = parseInt(p, 10);
+  const validRanges: [number, number][] = [
+    [110001, 110097],
+    [121001, 136136],
+    [140001, 160062],
+    [171001, 177220],
+    [180001, 194401],
+    [201001, 285223],
+    [302001, 344704],
+    [360001, 396450],
+    [400001, 416528],
+    [403001, 403731],
+    [411001, 445402],
+    [440001, 445402],
+    [450001, 497778],
+    [500001, 535546],
+    [560001, 591317],
+    [600001, 643253],
+    [670001, 695618],
+    [700001, 743713],
+    [751001, 770073],
+    [781001, 799299],
+    [800001, 855117],
+    [828001, 835229],
+  ];
+  return validRanges.some(([lo, hi]) => num >= lo && num <= hi);
 }
