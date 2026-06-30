@@ -3,6 +3,7 @@ import { AppShell } from "@/components/AppShell";
 import { MapPin, X } from "lucide-react";
 import { requireAuth } from "@/lib/auth-guard";
 import { useReports, CATEGORIES, type Category, timeAgo } from "@/lib/store";
+import { useApiReports } from "@/lib/useApi";
 import { useState, useMemo, useEffect, useRef } from "react";
 
 /* ── Leaflet CDN typings (avoids no-explicit-any) ─────────────────────── */
@@ -173,7 +174,20 @@ function LeafletMap({
 }
 
 function MapPage() {
-  const { reports } = useReports();
+  const { reports: storeReports } = useReports();
+  const { reports: apiReports } = useApiReports();
+  const reports = apiReports.length > 0
+    ? apiReports.map(r => ({
+        ...r,
+        id: r._id,
+        reporterId: typeof r.reporter === "string" ? r.reporter : (r.reporter as {_id:string})?._id || "",
+        createdAt: new Date(r.createdAt).getTime(),
+        upvotes: r.upvotes || [],
+        downvotes: r.downvotes || [],
+        comments: r.comments || [],
+        spamFlags: r.spamFlags || [],
+      }))
+    : storeReports;
   const [active, setActive] = useState<Set<Category>>(new Set(CATEGORIES));
   const [selected, setSelected] = useState<string | null>(null);
 
@@ -272,8 +286,10 @@ function MapPage() {
           </div>
         </div>
 
-        {/* Map */}
-        <div className="flex-1 rounded-2xl overflow-hidden border border-border relative">
+        {/* Map — `isolate` confines Leaflet's internal z-index (panes go up to 700,
+            controls to 1000) to this subtree so it can never paint over page UI
+            like the notification dropdown, regardless of the dropdown's own z-index. */}
+        <div className="flex-1 rounded-2xl overflow-hidden border border-border relative isolate">
           {reports.length === 0 ? (
             <div className="w-full h-full flex items-center justify-center bg-muted/30">
               <div className="text-center">

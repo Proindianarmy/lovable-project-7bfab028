@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { AppShell } from "@/components/AppShell";
 import { requireAuth } from "@/lib/auth-guard";
 import { useAuth, useReports, levelFor, AVATAR_OPTIONS, censorText } from "@/lib/store";
+import { apiUpdateProfile } from "@/lib/useApi";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { LogOut, Camera } from "lucide-react";
@@ -60,6 +61,8 @@ function SettingsPage() {
     const { text: cleanName } = censorText(name);
     const { text: cleanBio } = censorText(bio);
     updateProfile({ name: cleanName, bio: cleanBio, city, avatar, notifyEmail, notifyPush });
+    apiUpdateProfile({ name: cleanName, bio: cleanBio, city, avatar, notifyEmail, notifyPush })
+      .catch(() => {}); // best-effort; local store already updated
     toast.success("Profile saved!");
   };
 
@@ -71,10 +74,10 @@ function SettingsPage() {
       const data = ev.target?.result as string;
       setAvatar(data);
       updateProfile({ avatar: data });
+      apiUpdateProfile({ avatar: data }).catch(() => {});
       toast.success("Photo updated!");
     };
     reader.readAsDataURL(f);
-    // Reset input so same file can be re-selected
     e.target.value = "";
   };
 

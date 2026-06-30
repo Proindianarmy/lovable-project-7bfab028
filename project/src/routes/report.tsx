@@ -5,13 +5,13 @@ import {
   Sparkles,
   Loader2,
   AlertTriangle,
-  ImagePlus,
   X,
   CheckCircle2,
   Navigation,
   Move,
 } from "lucide-react";
 import { requireAuth } from "@/lib/auth-guard";
+import { ImageCapture, type AcceptedPhoto } from "@/components/ImageCapture";
 import { useT } from "@/lib/i18n";
 import { useEffect, useRef, useState, useCallback } from "react";
 import {
@@ -21,7 +21,6 @@ import {
   useReports,
   useAuth,
   useNotifications,
-  simulateAIDetection,
   detectSpam,
   censorText,
   INDIA_STATES,
@@ -223,7 +222,7 @@ function InteractiveMap({
 function Report() {
   const navigate = useNavigate();
   const { user, addPoints } = useAuth();
-  const { addReport, findSimilar, upvote } = useReports();
+  const { reports: storeReports, findSimilar } = useReports();
   const { push } = useNotifications();
   const t = useT();
 
@@ -245,7 +244,6 @@ function Report() {
 
   // Photos
   const [photos, setPhotos] = useState<string[]>([]);
-  const [analyzingIdx, setAnalyzingIdx] = useState<number | null>(null);
   const [aiTags, setAiTags] = useState<string[]>([]);
   const [aiConfidence, setAiConfidence] = useState<number | undefined>();
   const [spamInfo, setSpamInfo] = useState<{ score: number; reasons: string[] } | null>(null);
@@ -309,43 +307,24 @@ function Report() {
     setLng(newLng);
   }, []);
 
-  const handleImages = async (files: FileList) => {
-    const remaining = MAX_PHOTOS - photos.length;
-    if (remaining <= 0) {
-      toast.error(`Maximum ${MAX_PHOTOS} photos allowed per report.`);
-      return;
-    }
-    const toProcess = Array.from(files).slice(0, remaining);
-    for (const file of toProcess) {
-      await new Promise<void>((resolve) => {
-        const reader = new FileReader();
-        reader.onload = async (e) => {
-          const dataUrl = e.target?.result as string;
-          const idx = photos.length + toProcess.indexOf(file);
-          setAnalyzingIdx(idx);
-          const result = await simulateAIDetection(dataUrl);
-          setAnalyzingIdx(null);
-
-          if (result.isAIGenerated) {
-            toast.error(
-              `Photo ${toProcess.indexOf(file) + 1} detected as AI-generated or hand-drawn (${result.aiGeneratedConfidence}% confidence) — removed.`,
-              { duration: 5000 },
-            );
-          } else {
-            setPhotos((prev) => [...prev, dataUrl]);
-            if (idx === 0) {
-              setAiTags(result.tags);
-              setAiConfidence(result.confidence);
-              if (!category) setCategory(result.category);
-            }
-            toast.success(`Photo accepted (${result.confidence}% real photo)`);
-          }
-          resolve();
-        };
-        reader.readAsDataURL(file);
+  const handlePhotoAccepted = useCallback(
+    (photo: AcceptedPhoto) => {
+      setPhotos((prev) => {
+        if (prev.length >= MAX_PHOTOS) {
+          toast.error(`Maximum ${MAX_PHOTOS} photos allowed per report.`);
+          return prev;
+        }
+        const isFirst = prev.length === 0;
+        if (isFirst) {
+          if (photo.tags.length) setAiTags(photo.tags);
+          if (photo.confidence != null) setAiConfidence(photo.confidence);
+          if (photo.category) setCategory((c) => (c ? c : (photo.category as Category)));
+        }
+        return [...prev, photo.dataUrl];
       });
-    }
-  };
+    },
+    [],
+  );
 
   const removePhoto = (i: number) => {
     setPhotos((prev) => prev.filter((_, idx) => idx !== i));
@@ -362,7 +341,7 @@ function Report() {
 
   const fullLocation = [address, city, state, pincode].filter(Boolean).join(", ");
 
-  const submit = (force = false) => {
+  const submit = async (force = false) => {
     if (!title.trim() || !description.trim() || !category || !urgency) {
       toast.error(t("fillRequired"));
       return;
@@ -391,36 +370,57 @@ function Report() {
       }
     }
 
-    const newReport = addReport({
-      title: cleanTitle,
-      description: cleanDesc,
-      category: category as Category,
-      location: fullLocation,
-      city,
-      state,
-      pincode,
-      // Save the user-chosen pin coordinates (GPS or map click)
-      lat,
-      lng,
-      urgency: urgency as Urgency,
-      photos: photos.length > 0 ? photos : undefined,
-      image: photos[0],
-      aiTags,
-      aiConfidence,
-      reporterId: user?.id ?? "anon",
-      reporterName: user?.name ?? "Anonymous",
-      reporterAvatar: user?.avatar,
-      censored: tF || dF,
-    });
-    addPoints(10, "Issue reported");
-    push({
-      type: "system",
-      title: "Report submitted",
-      body: `Your report "${newReport.title}" is now live in the feed.`,
-      reportId: newReport.id,
-    });
-    setSubmittedTitle(newReport.title);
-    setShowCongrats(true);
+    // Build FormData to support photo uploads
+    const fd = new FormData();
+    fd.append("title", cleanTitle);
+    fd.append("description", cleanDesc);
+    fd.append("category", category);
+    fd.append("location", fullLocation);
+    fd.append("city", city);
+    fd.append("state", state);
+    fd.append("pincode", pincode);
+    if (lat !== undefined) fd.append("lat", String(lat));
+    if (lng !== undefined) fd.append("lng", String(lng));
+    fd.append("urgency", urgency);
+    if (aiTags?.length) fd.append("aiTags", JSON.stringify(aiTags));
+    if (aiConfidence) fd.append("aiConfidence", String(aiConfidence));
+
+    // Attach photo blobs if any base64 photos were captured
+    // photos are stored as data URLs — convert & attach
+    for (let i = 0; i < photos.length && i < 5; i++) {
+      const dataUrl = photos[i];
+      if (dataUrl.startsWith("data:")) {
+        const res = await fetch(dataUrl);
+        const blob = await res.blob();
+        fd.append("photos", blob, `photo_${i}.jpg`);
+      }
+    }
+
+    try {
+      const token = localStorage.getItem("token");
+      const apiBase = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+      const response = await fetch(`${apiBase}/reports`, {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: fd,
+      });
+      const data = await response.json();
+      if (!data.success) throw new Error(data.message || "Failed to submit report");
+
+      const newReport = data.data.report;
+      addPoints(10, "Issue reported");
+      push({
+        type: "system",
+        title: "Report submitted",
+        body: `Your report "${newReport.title}" is now live in the feed.`,
+        reportId: newReport._id,
+      });
+      setSubmittedTitle(newReport.title);
+      setShowCongrats(true);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Submission failed";
+      toast.error(msg);
+    }
   };
 
   return (
@@ -517,31 +517,16 @@ function Report() {
                 </button>
               </div>
             ))}
-            {photos.length < MAX_PHOTOS && (
-              <label className="aspect-square rounded-lg border-2 border-dashed border-border bg-muted/30 flex flex-col items-center justify-center cursor-pointer hover:bg-muted/50 transition-colors">
-                <input
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  className="hidden"
-                  onChange={(e) => {
-                    if (e.target.files?.length) handleImages(e.target.files!);
-                    e.target.value = "";
-                  }}
-                />
-                <ImagePlus className="w-7 h-7 text-muted-foreground" />
-                <span className="text-[10px] text-muted-foreground mt-1">{t("addPhoto")}</span>
-              </label>
-            )}
           </div>
 
-          {analyzingIdx !== null && (
-            <div className="flex items-center gap-2 text-sm text-primary p-2">
-              <Loader2 className="w-4 h-4 animate-spin" /> {t("analyzingImage")}
-            </div>
+          {photos.length < MAX_PHOTOS && (
+            <ImageCapture
+              onAccepted={handlePhotoAccepted}
+              helperText={`${MAX_PHOTOS - photos.length} photo${MAX_PHOTOS - photos.length === 1 ? "" : "s"} remaining · JPG, PNG, WEBP up to 15MB`}
+            />
           )}
 
-          {analyzingIdx === null && aiTags.length > 0 && (
+          {aiTags.length > 0 && (
             <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-2">
               <div className="flex items-center gap-2 text-sm font-semibold text-primary">
                 <Sparkles className="w-4 h-4" /> AI Detection

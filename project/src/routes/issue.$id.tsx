@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { requireAuth } from "@/lib/auth-guard";
 import { useReports, useAuth, computeRating, timeAgo, censorText } from "@/lib/store";
+import { useApiReport, apiUpvote, apiDownvote, apiAddComment } from "@/lib/useApi";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -34,14 +35,22 @@ const VOTE_COOLDOWN_MS = 3000;
 
 function IssueDetail() {
   const { id } = Route.useParams();
-  const { reports, upvote, downvote, addComment } = useReports();
+  const { reports } = useReports();
+  const { report: apiIssue, loading: apiLoading, refresh } = useApiReport(id);
   const { user, addPoints } = useAuth();
-  const issue = reports.find((r) => r.id === id);
+  // Prefer API data; fall back to local store if API is still loading
+  const rawIssue = apiIssue || reports.find((r) => r.id === id);
+  const issue = rawIssue ? {
+    ...rawIssue,
+    id: (rawIssue as {_id?: string; id?: string})._id || rawIssue.id || id,
+    upvotes: rawIssue.upvotes || [],
+    downvotes: rawIssue.downvotes || [],
+    comments: rawIssue.comments || [],
+    spamFlags: rawIssue.spamFlags || [],
+  } : null;
   const [comment, setComment] = useState("");
   const [showCensored, setShowCensored] = useState(false);
-  // Track last vote time per direction, keyed by issue id
   const voteCooldowns = useRef<Record<string, number>>({});
-  // Track last comment time to prevent spam (5 sec cooldown)
   const lastCommentAt = useRef<number>(0);
 
   if (!issue) {
@@ -57,10 +66,11 @@ function IssueDetail() {
     );
   }
 
-  const rating = computeRating(issue);
-  const upvoted = user ? issue.upvotes.includes(user.id) : false;
-  const downvoted = user ? (issue.downvotes ?? []).includes(user.id) : false;
-  const isHeavilyFlagged = issue.spamFlags.length >= 3 || issue.censored;
+  const rating = computeRating(issue as Parameters<typeof computeRating>[0]);
+  const uid = user?.id || (user as {_id?: string})?._id || "";
+  const upvoted = uid ? (issue.upvotes || []).includes(uid) : false;
+  const downvoted = uid ? (issue.downvotes ?? []).includes(uid) : false;
+  const isHeavilyFlagged = (issue.spamFlags || []).length >= 3 || issue.censored;
 
   const handleComment = () => {
     if (!comment.trim() || !user) return;
@@ -70,10 +80,10 @@ function IssueDetail() {
       return;
     }
     lastCommentAt.current = now;
-    // Auto-censor curse words in comments
     const { text: clean } = censorText(comment.trim());
-    addComment(issue.id, user.id, user.name, clean);
-    // Only +1 XP for commenting (reduced to prevent spam)
+    apiAddComment(issue.id, clean).then((res) => {
+      if (res.success) refresh();
+    }).catch(() => toast.error("Failed to post comment."));
     addPoints(1, "Commented on a report");
     setComment("");
     toast.success("Comment posted!");
@@ -88,14 +98,10 @@ function IssueDetail() {
       return;
     }
     voteCooldowns.current[key] = now;
-    const { wasUpvoted, wasDownvoted } = upvote(issue.id, user.id);
-    if (wasUpvoted) {
-      addPoints(-2, "Removed upvote");
-    } else if (wasDownvoted) {
-      addPoints(4, "Changed to upvote");
-    } else {
-      addPoints(2, "Upvoted an issue");
-    }
+    apiUpvote(issue.id).then((res) => {
+      if (res.success) refresh();
+    }).catch(() => toast.error("Vote failed."));
+    addPoints(2, "Upvoted an issue");
   };
 
   const handleDownvote = () => {
@@ -107,14 +113,10 @@ function IssueDetail() {
       return;
     }
     voteCooldowns.current[key] = now;
-    const { wasDownvoted, wasUpvoted } = downvote(issue.id, user.id);
-    if (wasDownvoted) {
-      addPoints(2, "Removed downvote");
-    } else if (wasUpvoted) {
-      addPoints(-4, "Changed to downvote");
-    } else {
-      addPoints(-2, "Downvoted an issue");
-    }
+    apiDownvote(issue.id).then((res) => {
+      if (res.success) refresh();
+    }).catch(() => toast.error("Vote failed."));
+    addPoints(-2, "Downvoted an issue");
   };
 
   const allPhotos =

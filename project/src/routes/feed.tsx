@@ -3,6 +3,7 @@ import { AppShell, StatusBadge, SeverityBadge } from "@/components/AppShell";
 import { Inbox, ThumbsUp, ThumbsDown, MessageCircle, Flag, MapPin, X, Search } from "lucide-react";
 import { requireAuth } from "@/lib/auth-guard";
 import { useMemo, useRef, useState } from "react";
+import { useApiReports, apiUpvote, apiDownvote } from "@/lib/useApi";
 import {
   CATEGORIES,
   type Category,
@@ -45,7 +46,19 @@ export const Route = createFileRoute("/feed")({
 function Feed() {
   const search = useSearch({ from: "/feed" });
   const navigate = Route.useNavigate();
-  const { reports, upvote, downvote, flagSpam } = useReports();
+  const { reports: storeReports, upvote: storeUpvote, downvote: storeDownvote, flagSpam: storeFlagSpam } = useReports();
+  const { reports: apiReports, loading: apiLoading, refetch } = useApiReports();
+  // Merge: prefer API reports, fall back to local store if API fails/loading
+  const reports = apiReports.length > 0 ? apiReports.map(r => ({
+    ...r,
+    id: r._id,
+    reporterId: typeof r.reporter === "string" ? r.reporter : (r.reporter as {_id: string})?._id || "",
+    createdAt: new Date(r.createdAt).getTime(),
+    upvotes: r.upvotes || [],
+    downvotes: r.downvotes || [],
+    comments: r.comments || [],
+    spamFlags: r.spamFlags || [],
+  })) : storeReports;
   const { user, addPoints } = useAuth();
   const t = useT();
 
@@ -117,10 +130,10 @@ function Feed() {
       return;
     }
     voteCooldowns.current[key] = now;
-    const { wasUpvoted, wasDownvoted } = upvote(reportId, user.id);
-    if (wasUpvoted) addPoints(-2, "Removed upvote");
-    else if (wasDownvoted) addPoints(4, "Changed vote to upvote");
-    else addPoints(2, "Upvoted an issue");
+    apiUpvote(reportId).then((res) => {
+      if (res.success) refetch();
+    }).catch(() => toast.error("Vote failed."));
+    addPoints(2, "Upvoted an issue");
   };
 
   const handleDownvote = (reportId: string) => {
@@ -132,10 +145,10 @@ function Feed() {
       return;
     }
     voteCooldowns.current[key] = now;
-    const { wasDownvoted, wasUpvoted } = downvote(reportId, user.id);
-    if (wasDownvoted) addPoints(2, "Removed downvote");
-    else if (wasUpvoted) addPoints(-4, "Changed vote to downvote");
-    else addPoints(-2, "Downvoted an issue");
+    apiDownvote(reportId).then((res) => {
+      if (res.success) refetch();
+    }).catch(() => toast.error("Vote failed."));
+    addPoints(-2, "Downvoted an issue");
   };
 
   return (
@@ -258,8 +271,9 @@ function Feed() {
         <div className="grid gap-3">
           {filtered.map((r) => {
             const rating = computeRating(r);
-            const upvoted = user ? r.upvotes.includes(user.id) : false;
-            const downvoted = user ? (r.downvotes ?? []).includes(user.id) : false;
+            const uid = user?.id || (user as {_id?: string})?._id || "";
+            const upvoted = uid ? (r.upvotes || []).includes(uid) : false;
+            const downvoted = uid ? (r.downvotes ?? []).includes(uid) : false;
             const netVotes = r.upvotes.length - (r.downvotes?.length ?? 0);
 
             // ── Safely resolve thumbnail — never show raw data: string ──
@@ -358,12 +372,17 @@ function Feed() {
                   <button
                     onClick={() => {
                       if (!user) return;
-                      flagSpam(r.id, user.id);
+                      const apiBase = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+                      const token = localStorage.getItem("token");
+                      fetch(`${apiBase}/reports/${r.id || r._id}/flag-spam`, {
+                        method: "POST",
+                        headers: token ? { Authorization: `Bearer ${token}` } : {},
+                      }).then(() => refetch());
                       toast.success("Report flagged for review.");
                     }}
                     className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs text-muted-foreground hover:bg-muted"
                   >
-                    <Flag className="w-3.5 h-3.5" /> Spam ({r.spamFlags.length})
+                    <Flag className="w-3.5 h-3.5" /> Spam ({(r.spamFlags || []).length})
                   </button>
                 </div>
               </div>

@@ -10,7 +10,8 @@ import {
   RefreshCw,
   CheckCircle2,
 } from "lucide-react";
-import { ADMIN_EMAIL, ADMIN_PASSWORD, ADMIN_NAME } from "@/lib/store";
+import { authApi } from "@/lib/api";
+import { useAuth } from "@/lib/store";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({ meta: [{ title: "Sign In — IssueSnap" }] }),
@@ -19,90 +20,6 @@ export const Route = createFileRoute("/auth")({
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 type Mode = "signin" | "signup" | "otp-verify" | "forgot" | "reset-otp" | "reset-password";
-type Account = { name: string; email: string; password: string; verified: boolean };
-
-function getAccounts(): Account[] {
-  try {
-    return JSON.parse(localStorage.getItem("accounts") || "[]");
-  } catch {
-    return [];
-  }
-}
-function saveAccounts(a: Account[]) {
-  localStorage.setItem("accounts", JSON.stringify(a));
-}
-
-/* ── OTP helpers (stored in sessionStorage so they expire on tab close) ── */
-function storeOtp(email: string, otp: string) {
-  sessionStorage.setItem(`otp_${email}`, JSON.stringify({ otp, exp: Date.now() + 10 * 60 * 1000 }));
-}
-function verifyOtp(email: string, entered: string): "ok" | "wrong" | "expired" {
-  try {
-    const raw = sessionStorage.getItem(`otp_${email}`);
-    if (!raw) return "expired";
-    const { otp, exp } = JSON.parse(raw) as { otp: string; exp: number };
-    if (Date.now() > exp) return "expired";
-    return otp === entered.trim() ? "ok" : "wrong";
-  } catch {
-    return "expired";
-  }
-}
-function clearOtp(email: string) {
-  sessionStorage.removeItem(`otp_${email}`);
-}
-
-/* ── Email sending via EmailJS (free) — see setup guide ── */
-async function sendOtpEmail(
-  toEmail: string,
-  otp: string,
-  purpose: "verify" | "reset",
-): Promise<void> {
-  const serviceId = import.meta.env?.VITE_EMAILJS_SERVICE_ID ?? "";
-  const templateId =
-    purpose === "verify"
-      ? (import.meta.env?.VITE_EMAILJS_VERIFY_TEMPLATE ?? "")
-      : (import.meta.env?.VITE_EMAILJS_RESET_TEMPLATE ?? "");
-  const publicKey = import.meta.env?.VITE_EMAILJS_PUBLIC_KEY ?? "";
-
-  if (!serviceId || !templateId || !publicKey) {
-    // Dev fallback: print OTP to console so you can still test locally
-    console.info(`[IssueSnap DEV] OTP for ${toEmail}: ${otp}`);
-    return;
-  }
-
-  // Send all common variable name aliases so the template works regardless
-  // of what you named the variables inside your EmailJS template editor.
-  const body = {
-    service_id: serviceId,
-    template_id: templateId,
-    user_id: publicKey,
-    accessToken: publicKey,
-    template_params: {
-      to_email: toEmail,
-      email: toEmail,
-      otp_code: otp,
-      otp: otp,
-      passcode: otp,
-      expires_in: "10 minutes",
-    },
-  };
-
-  const res = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-
-  if (!res.ok) {
-    const errText = await res.text().catch(() => "unknown");
-    console.error("[EmailJS error]", res.status, errText);
-    throw new Error(`email-failed: ${res.status} ${errText}`);
-  }
-}
-
-function generateOtp() {
-  return String(Math.floor(100000 + Math.random() * 900000));
-}
 
 /* ── OTP Input Component ── */
 function OtpInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
@@ -140,7 +57,7 @@ function OtpInput({ value, onChange }: { value: string; onChange: (v: string) =>
           maxLength={1}
           value={digits[i] === " " ? "" : digits[i]}
           onKeyDown={(e) => handleKey(i, e)}
-          onChange={() => {}} // controlled via keydown
+          onChange={() => {}}
           className="w-11 h-12 text-center text-xl font-bold rounded-lg border-2 border-border bg-background focus:border-primary focus:outline-none"
         />
       ))}
@@ -152,19 +69,13 @@ function OtpInput({ value, onChange }: { value: string; onChange: (v: string) =>
 function OtpTimer({ seconds, onExpired }: { seconds: number; onExpired: () => void }) {
   const [left, setLeft] = useState(seconds);
   useEffect(() => {
-    if (left <= 0) {
-      onExpired();
-      return;
-    }
+    if (left <= 0) { onExpired(); return; }
     const t = setTimeout(() => setLeft((l) => l - 1), 1000);
     return () => clearTimeout(t);
   }, [left, onExpired]);
-  const m = Math.floor(left / 60),
-    s = left % 60;
+  const m = Math.floor(left / 60), s = left % 60;
   return (
-    <span
-      className={`text-sm font-mono ${left < 60 ? "text-destructive" : "text-muted-foreground"}`}
-    >
+    <span className={`text-sm font-mono ${left < 60 ? "text-destructive" : "text-muted-foreground"}`}>
       {m}:{s.toString().padStart(2, "0")}
     </span>
   );
@@ -172,6 +83,7 @@ function OtpTimer({ seconds, onExpired }: { seconds: number; onExpired: () => vo
 
 function AuthPage() {
   const navigate = useNavigate();
+  const { loginUser } = useAuth();
   const [mode, setMode] = useState<Mode>("signin");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -182,164 +94,150 @@ function AuthPage() {
   const [showPw, setShowPw] = useState(false);
   const [otp, setOtp] = useState("");
   const [otpSending, setOtpSending] = useState(false);
-  const [otpSent, setOtpSent] = useState(false);
   const [otpExpired, setOtpExpired] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [success, setSuccess] = useState("");
+  const [successMsg, setSuccessMsg] = useState("");
+  const [loading, setLoading] = useState(false);
 
   const redirected =
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("blocked") === "1";
 
-  const doLogin = (email: string, userName: string) => {
+  const doLogin = (token: string, user: { name: string; email: string; _id: string }) => {
+    localStorage.setItem("token", token);
     localStorage.setItem("isLoggedIn", "true");
-    localStorage.setItem("userEmail", email);
-    localStorage.setItem("userName", userName);
+    localStorage.setItem("userEmail", user.email);
+    localStorage.setItem("userName", user.name);
+    loginUser(user.email);
     navigate({ to: "/dashboard" });
   };
 
-  /* ── Send OTP ── */
-  const sendOtp = async (targetEmail: string, purpose: "verify" | "reset") => {
+  /* ── Sign Up ── */
+  const handleSignUp = async () => {
+    const next: Record<string, string> = {};
+    if (name.trim().length < 2) next.name = "Name must be at least 2 characters";
+    if (!EMAIL_RE.test(email)) next.email = "Enter a valid email address";
+    if (password.length < 8) next.password = "Password must be at least 8 characters";
+    if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(password)) next.password = "Must have uppercase, lowercase & number";
+    if (password !== confirm) next.confirm = "Passwords do not match";
+    if (Object.keys(next).length) { setErrors(next); return; }
+
     setOtpSending(true);
-    const code = generateOtp();
-    storeOtp(targetEmail, code);
     try {
-      await sendOtpEmail(targetEmail, code, purpose);
-      setOtpSent(true);
+      await authApi.register({ name: name.trim(), email, password });
+      setErrors({});
       setOtpExpired(false);
       setOtp("");
-    } catch {
-      setErrors({ general: "Failed to send OTP. Please try again." });
+      setMode("otp-verify");
+    } catch (err: unknown) {
+      setErrors({ general: err instanceof Error ? err.message : "Registration failed." });
     }
     setOtpSending(false);
   };
 
-  /* ── Sign Up → send verify OTP ── */
-  const handleSignUp = () => {
-    const next: Record<string, string> = {};
-    if (name.trim().length < 2) next.name = "Name must be at least 2 characters";
-    if (!EMAIL_RE.test(email)) next.email = "Enter a valid email address";
-    if (password.length < 6) next.password = "Password must be at least 6 characters";
-    if (password !== confirm) next.confirm = "Passwords do not match";
-    if (email === ADMIN_EMAIL) next.email = "This email is reserved.";
-    if (Object.keys(next).length) {
-      setErrors(next);
-      return;
-    }
-    const accounts = getAccounts();
-    if (accounts.find((a) => a.email === email)) {
-      setErrors({ email: "Account already exists. Sign in instead." });
-      return;
-    }
-    // Save unverified account
-    accounts.push({ name: name.trim(), email, password, verified: false });
-    saveAccounts(accounts);
-    setErrors({});
-    sendOtp(email, "verify");
-    setMode("otp-verify");
-  };
-
   /* ── Verify OTP (signup) ── */
-  const handleVerifyOtp = () => {
-    const result = verifyOtp(email, otp);
-    if (result === "expired") {
-      setErrors({ otp: "OTP has expired. Request a new one." });
-      return;
+  const handleVerifyOtp = async () => {
+    if (otp.length < 6) return;
+    setLoading(true);
+    try {
+      const data = await authApi.verifyOtp({ email, otp });
+      setErrors({});
+      doLogin(data.token, data.user as { name: string; email: string; _id: string });
+    } catch (err: unknown) {
+      setErrors({ otp: err instanceof Error ? err.message : "Invalid OTP." });
     }
-    if (result === "wrong") {
-      setErrors({ otp: "Incorrect OTP. Please try again." });
-      return;
-    }
-    clearOtp(email);
-    // Mark account verified
-    const accounts = getAccounts();
-    const idx = accounts.findIndex((a) => a.email === email);
-    if (idx >= 0) accounts[idx].verified = true;
-    saveAccounts(accounts);
-    setErrors({});
-    doLogin(email, name.trim());
+    setLoading(false);
   };
 
   /* ── Sign In ── */
-  const handleSignIn = () => {
+  const handleSignIn = async () => {
     const next: Record<string, string> = {};
     if (!EMAIL_RE.test(email)) next.email = "Enter a valid email address";
     if (!password) next.password = "Enter your password";
-    if (Object.keys(next).length) {
-      setErrors(next);
-      return;
+    if (Object.keys(next).length) { setErrors(next); return; }
+
+    setLoading(true);
+    try {
+      const data = await authApi.login({ email, password });
+      setErrors({});
+      doLogin(data.token, data.user as { name: string; email: string; _id: string });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Login failed.";
+      // If unverified, backend already sent a new OTP
+      if (msg.toLowerCase().includes("not verified")) {
+        setMode("otp-verify");
+        setErrors({ general: msg });
+      } else {
+        setErrors({ general: msg });
+      }
     }
-    // Admin hardcoded
-    if (email === ADMIN_EMAIL && password === ADMIN_PASSWORD) {
-      doLogin(email, ADMIN_NAME);
-      return;
-    }
-    const match = getAccounts().find((a) => a.email === email && a.password === password);
-    if (!match) {
-      setErrors({ general: "No account found. Check credentials or create an account." });
-      return;
-    }
-    doLogin(email, match.name);
+    setLoading(false);
   };
 
-  /* ── Forgot password → send reset OTP ── */
-  const handleForgotSubmit = () => {
-    if (!EMAIL_RE.test(email)) {
-      setErrors({ email: "Enter a valid email address" });
-      return;
+  /* ── Resend OTP ── */
+  const sendOtp = async (targetEmail: string, purpose: "verify" | "reset") => {
+    setOtpSending(true);
+    try {
+      await authApi.resendOtp({ email: targetEmail, purpose });
+      setOtpExpired(false);
+      setOtp("");
+      setErrors({});
+    } catch (err: unknown) {
+      setErrors({ general: err instanceof Error ? err.message : "Failed to send OTP." });
     }
-    const exists = getAccounts().find((a) => a.email === email) || email === ADMIN_EMAIL;
-    if (!exists) {
-      setErrors({ email: "No account found with this email." });
-      return;
+    setOtpSending(false);
+  };
+
+  /* ── Forgot password ── */
+  const handleForgotSubmit = async () => {
+    if (!EMAIL_RE.test(email)) { setErrors({ email: "Enter a valid email address" }); return; }
+    setOtpSending(true);
+    try {
+      await authApi.forgotPassword({ email });
+      setErrors({});
+      setOtpExpired(false);
+      setOtp("");
+      setMode("reset-otp");
+    } catch (err: unknown) {
+      setErrors({ general: err instanceof Error ? err.message : "Failed to send OTP." });
     }
-    setErrors({});
-    sendOtp(email, "reset");
-    setMode("reset-otp");
+    setOtpSending(false);
   };
 
   /* ── Verify reset OTP ── */
-  const handleResetOtp = () => {
-    const result = verifyOtp(email, otp);
-    if (result === "expired") {
-      setErrors({ otp: "OTP has expired. Request a new one." });
-      return;
+  const handleResetOtp = async () => {
+    if (otp.length < 6) return;
+    setLoading(true);
+    try {
+      await authApi.verifyResetOtp({ email, otp });
+      setErrors({});
+      setMode("reset-password");
+    } catch (err: unknown) {
+      setErrors({ otp: err instanceof Error ? err.message : "Invalid OTP." });
     }
-    if (result === "wrong") {
-      setErrors({ otp: "Incorrect OTP. Please try again." });
-      return;
-    }
-    clearOtp(email);
-    setErrors({});
-    setMode("reset-password");
+    setLoading(false);
   };
 
   /* ── Set new password ── */
-  const handleResetPassword = () => {
-    if (newPass.length < 6) {
-      setErrors({ newPass: "Min 6 characters" });
-      return;
+  const handleResetPassword = async () => {
+    if (newPass.length < 8) { setErrors({ newPass: "Min 8 characters" }); return; }
+    if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(newPass)) {
+      setErrors({ newPass: "Must have uppercase, lowercase & number" }); return;
     }
-    if (newPass !== confirmNew) {
-      setErrors({ confirmNew: "Passwords do not match" });
-      return;
+    if (newPass !== confirmNew) { setErrors({ confirmNew: "Passwords do not match" }); return; }
+
+    setLoading(true);
+    try {
+      await authApi.resetPassword({ email, password: newPass });
+      setSuccessMsg("Password reset successfully! You can now sign in.");
+      setMode("signin");
+    } catch (err: unknown) {
+      setErrors({ general: err instanceof Error ? err.message : "Reset failed." });
     }
-    const accounts = getAccounts();
-    const idx = accounts.findIndex((a) => a.email === email);
-    if (idx >= 0) {
-      accounts[idx].password = newPass;
-      saveAccounts(accounts);
-    }
-    setSuccess("Password reset successfully! You can now sign in.");
-    setMode("signin");
+    setLoading(false);
   };
 
-  const goBack = () => {
-    setMode("signin");
-    setErrors({});
-    setOtp("");
-    setOtpSent(false);
-  };
+  const goBack = () => { setMode("signin"); setErrors({}); setOtp(""); };
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -357,21 +255,18 @@ function AuthPage() {
       <main className="flex-1 grid place-items-center px-6 py-12">
         <div className="w-full max-w-md">
           <div className="rounded-2xl border border-border bg-card p-8 shadow-sm">
-            {/* ── Success banner ── */}
-            {success && (
+            {successMsg && (
               <div className="mb-4 flex items-start gap-2 rounded-lg border border-green-400/40 bg-green-500/10 px-4 py-3 text-sm text-green-700 dark:text-green-400">
                 <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" />
-                <span>{success}</span>
+                <span>{successMsg}</span>
               </div>
             )}
-
             {redirected && (
               <div className="mb-4 flex items-start gap-2 rounded-lg border border-yellow-300 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">
                 <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
                 <span>You must be signed in to access that page.</span>
               </div>
             )}
-
             {errors.general && (
               <div className="mb-4 flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
                 <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
@@ -383,56 +278,22 @@ function AuthPage() {
             {mode === "signin" && (
               <>
                 <h1 className="text-2xl font-bold mb-1">Welcome back</h1>
-                <p className="text-sm text-muted-foreground mb-6">
-                  Sign in to continue reporting and tracking issues.
-                </p>
+                <p className="text-sm text-muted-foreground mb-6">Sign in to continue reporting and tracking issues.</p>
                 <div className="grid grid-cols-2 gap-1 rounded-lg bg-muted p-1 mb-6">
-                  <button className="py-2 text-sm rounded-md font-medium bg-background shadow-sm">
-                    Sign In
-                  </button>
-                  <button
-                    onClick={() => {
-                      setMode("signup");
-                      setErrors({});
-                    }}
-                    className="py-2 text-sm rounded-md font-medium text-muted-foreground"
-                  >
-                    Create Account
-                  </button>
+                  <button className="py-2 text-sm rounded-md font-medium bg-background shadow-sm">Sign In</button>
+                  <button onClick={() => { setMode("signup"); setErrors({}); }} className="py-2 text-sm rounded-md font-medium text-muted-foreground">Create Account</button>
                 </div>
                 <div className="space-y-4">
                   <Field label="Email" error={errors.email}>
-                    <input
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="you@example.com"
-                      className="inp"
-                    />
+                    <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" className="inp" onKeyDown={(e) => e.key === "Enter" && handleSignIn()} />
                   </Field>
                   <Field label="Password" error={errors.password}>
-                    <PwInput
-                      value={password}
-                      onChange={setPassword}
-                      show={showPw}
-                      onToggle={() => setShowPw((v) => !v)}
-                    />
+                    <PwInput value={password} onChange={setPassword} show={showPw} onToggle={() => setShowPw((v) => !v)} onEnter={handleSignIn} />
                   </Field>
-                  <button
-                    onClick={handleSignIn}
-                    className="w-full h-10 rounded-md bg-primary text-primary-foreground font-medium hover:opacity-90"
-                  >
-                    Sign In
+                  <button onClick={handleSignIn} disabled={loading} className="w-full h-10 rounded-md bg-primary text-primary-foreground font-medium hover:opacity-90 disabled:opacity-60">
+                    {loading ? "Signing in…" : "Sign In"}
                   </button>
-                  <button
-                    onClick={() => {
-                      setMode("forgot");
-                      setErrors({});
-                    }}
-                    className="w-full text-xs text-primary hover:underline mt-1"
-                  >
-                    Forgot password?
-                  </button>
+                  <button onClick={() => { setMode("forgot"); setErrors({}); }} className="w-full text-xs text-primary hover:underline mt-1">Forgot password?</button>
                 </div>
               </>
             )}
@@ -441,71 +302,32 @@ function AuthPage() {
             {mode === "signup" && (
               <>
                 <h1 className="text-2xl font-bold mb-1">Create your account</h1>
-                <p className="text-sm text-muted-foreground mb-6">
-                  Join IssueSnap to help improve your community.
-                </p>
+                <p className="text-sm text-muted-foreground mb-6">Join IssueSnap to help improve your community.</p>
                 <div className="grid grid-cols-2 gap-1 rounded-lg bg-muted p-1 mb-6">
-                  <button
-                    onClick={() => {
-                      setMode("signin");
-                      setErrors({});
-                    }}
-                    className="py-2 text-sm rounded-md font-medium text-muted-foreground"
-                  >
-                    Sign In
-                  </button>
-                  <button className="py-2 text-sm rounded-md font-medium bg-background shadow-sm">
-                    Create Account
-                  </button>
+                  <button onClick={() => { setMode("signin"); setErrors({}); }} className="py-2 text-sm rounded-md font-medium text-muted-foreground">Sign In</button>
+                  <button className="py-2 text-sm rounded-md font-medium bg-background shadow-sm">Create Account</button>
                 </div>
                 <div className="space-y-4">
                   <Field label="Full Name" error={errors.name}>
-                    <input
-                      type="text"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      placeholder="Jane Doe"
-                      className="inp"
-                    />
+                    <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Jane Doe" className="inp" />
                   </Field>
                   <Field label="Email" error={errors.email}>
-                    <input
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="you@example.com"
-                      className="inp"
-                    />
+                    <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" className="inp" />
                   </Field>
                   <Field label="Password" error={errors.password}>
-                    <PwInput
-                      value={password}
-                      onChange={setPassword}
-                      show={showPw}
-                      onToggle={() => setShowPw((v) => !v)}
-                    />
+                    <PwInput value={password} onChange={setPassword} show={showPw} onToggle={() => setShowPw((v) => !v)} />
                   </Field>
                   <Field label="Confirm Password" error={errors.confirm}>
-                    <input
-                      type={showPw ? "text" : "password"}
-                      value={confirm}
-                      onChange={(e) => setConfirm(e.target.value)}
-                      placeholder="••••••••"
-                      className="inp"
-                    />
+                    <input type={showPw ? "text" : "password"} value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder="••••••••" className="inp" />
                   </Field>
-                  <button
-                    onClick={handleSignUp}
-                    disabled={otpSending}
-                    className="w-full h-10 rounded-md bg-primary text-primary-foreground font-medium hover:opacity-90 disabled:opacity-60"
-                  >
+                  <button onClick={handleSignUp} disabled={otpSending} className="w-full h-10 rounded-md bg-primary text-primary-foreground font-medium hover:opacity-90 disabled:opacity-60">
                     {otpSending ? "Sending OTP…" : "Create Account"}
                   </button>
                 </div>
               </>
             )}
 
-            {/* ════════════ OTP VERIFY (signup) ════════════ */}
+            {/* ════════════ OTP VERIFY ════════════ */}
             {mode === "otp-verify" && (
               <>
                 <div className="flex items-center gap-3 mb-4">
@@ -514,38 +336,21 @@ function AuthPage() {
                   </div>
                   <div>
                     <h1 className="text-xl font-bold">Verify your email</h1>
-                    <p className="text-xs text-muted-foreground">
-                      OTP sent to <b>{email}</b>
-                    </p>
+                    <p className="text-xs text-muted-foreground">OTP sent to <b>{email}</b></p>
                   </div>
                 </div>
-                <p className="text-sm text-muted-foreground mb-2">
-                  Enter the 6-digit code from your email. Expires in:
-                </p>
+                <p className="text-sm text-muted-foreground mb-2">Enter the 6-digit code from your email. Expires in:</p>
                 {!otpExpired && <OtpTimer seconds={600} onExpired={() => setOtpExpired(true)} />}
                 {otpExpired && <p className="text-sm text-destructive mb-2">OTP expired.</p>}
                 <OtpInput value={otp} onChange={setOtp} />
                 {errors.otp && <p className="text-xs text-destructive mb-2">{errors.otp}</p>}
-                <button
-                  onClick={handleVerifyOtp}
-                  disabled={otp.length < 6}
-                  className="w-full h-10 rounded-md bg-primary text-primary-foreground font-medium hover:opacity-90 disabled:opacity-50"
-                >
-                  Verify & Continue
+                <button onClick={handleVerifyOtp} disabled={otp.length < 6 || loading} className="w-full h-10 rounded-md bg-primary text-primary-foreground font-medium hover:opacity-90 disabled:opacity-50">
+                  {loading ? "Verifying…" : "Verify & Continue"}
                 </button>
-                <button
-                  onClick={() => sendOtp(email, "verify")}
-                  disabled={otpSending || !otpExpired}
-                  className="w-full mt-3 flex items-center justify-center gap-2 text-sm text-primary hover:underline disabled:opacity-40"
-                >
+                <button onClick={() => sendOtp(email, "verify")} disabled={otpSending || !otpExpired} className="w-full mt-3 flex items-center justify-center gap-2 text-sm text-primary hover:underline disabled:opacity-40">
                   <RefreshCw className="w-3.5 h-3.5" /> Resend OTP
                 </button>
-                <button
-                  onClick={goBack}
-                  className="w-full mt-2 text-xs text-muted-foreground hover:underline"
-                >
-                  ← Back to Sign In
-                </button>
+                <button onClick={goBack} className="w-full mt-2 text-xs text-muted-foreground hover:underline">← Back to Sign In</button>
               </>
             )}
 
@@ -553,32 +358,15 @@ function AuthPage() {
             {mode === "forgot" && (
               <>
                 <h1 className="text-2xl font-bold mb-1">Reset Password</h1>
-                <p className="text-sm text-muted-foreground mb-6">
-                  Enter your email to receive a reset OTP.
-                </p>
+                <p className="text-sm text-muted-foreground mb-6">Enter your email to receive a reset OTP.</p>
                 <div className="space-y-4">
                   <Field label="Email" error={errors.email}>
-                    <input
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="you@example.com"
-                      className="inp"
-                    />
+                    <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" className="inp" />
                   </Field>
-                  <button
-                    onClick={handleForgotSubmit}
-                    disabled={otpSending}
-                    className="w-full h-10 rounded-md bg-primary text-primary-foreground font-medium hover:opacity-90 disabled:opacity-60"
-                  >
+                  <button onClick={handleForgotSubmit} disabled={otpSending} className="w-full h-10 rounded-md bg-primary text-primary-foreground font-medium hover:opacity-90 disabled:opacity-60">
                     {otpSending ? "Sending OTP…" : "Send Reset OTP"}
                   </button>
-                  <button
-                    onClick={goBack}
-                    className="w-full text-xs text-muted-foreground hover:underline"
-                  >
-                    ← Back to Sign In
-                  </button>
+                  <button onClick={goBack} className="w-full text-xs text-muted-foreground hover:underline">← Back to Sign In</button>
                 </div>
               </>
             )}
@@ -592,27 +380,17 @@ function AuthPage() {
                   </div>
                   <div>
                     <h1 className="text-xl font-bold">Enter Reset OTP</h1>
-                    <p className="text-xs text-muted-foreground">
-                      Sent to <b>{email}</b>
-                    </p>
+                    <p className="text-xs text-muted-foreground">Sent to <b>{email}</b></p>
                   </div>
                 </div>
                 {!otpExpired && <OtpTimer seconds={600} onExpired={() => setOtpExpired(true)} />}
                 {otpExpired && <p className="text-sm text-destructive mb-2">OTP expired.</p>}
                 <OtpInput value={otp} onChange={setOtp} />
                 {errors.otp && <p className="text-xs text-destructive mb-2">{errors.otp}</p>}
-                <button
-                  onClick={handleResetOtp}
-                  disabled={otp.length < 6}
-                  className="w-full h-10 rounded-md bg-primary text-primary-foreground font-medium hover:opacity-90 disabled:opacity-50"
-                >
-                  Verify OTP
+                <button onClick={handleResetOtp} disabled={otp.length < 6 || loading} className="w-full h-10 rounded-md bg-primary text-primary-foreground font-medium hover:opacity-90 disabled:opacity-50">
+                  {loading ? "Verifying…" : "Verify OTP"}
                 </button>
-                <button
-                  onClick={() => sendOtp(email, "reset")}
-                  disabled={otpSending || !otpExpired}
-                  className="w-full mt-3 flex items-center justify-center gap-2 text-sm text-primary hover:underline disabled:opacity-40"
-                >
+                <button onClick={() => sendOtp(email, "reset")} disabled={otpSending || !otpExpired} className="w-full mt-3 flex items-center justify-center gap-2 text-sm text-primary hover:underline disabled:opacity-40">
                   <RefreshCw className="w-3.5 h-3.5" /> Resend OTP
                 </button>
               </>
@@ -622,32 +400,16 @@ function AuthPage() {
             {mode === "reset-password" && (
               <>
                 <h1 className="text-2xl font-bold mb-1">Set New Password</h1>
-                <p className="text-sm text-muted-foreground mb-6">
-                  Choose a new password for <b>{email}</b>
-                </p>
+                <p className="text-sm text-muted-foreground mb-6">Choose a new password for <b>{email}</b></p>
                 <div className="space-y-4">
                   <Field label="New Password" error={errors.newPass}>
-                    <PwInput
-                      value={newPass}
-                      onChange={setNewPass}
-                      show={showPw}
-                      onToggle={() => setShowPw((v) => !v)}
-                    />
+                    <PwInput value={newPass} onChange={setNewPass} show={showPw} onToggle={() => setShowPw((v) => !v)} />
                   </Field>
                   <Field label="Confirm New Password" error={errors.confirmNew}>
-                    <input
-                      type={showPw ? "text" : "password"}
-                      value={confirmNew}
-                      onChange={(e) => setConfirmNew(e.target.value)}
-                      placeholder="••••••••"
-                      className="inp"
-                    />
+                    <input type={showPw ? "text" : "password"} value={confirmNew} onChange={(e) => setConfirmNew(e.target.value)} placeholder="••••••••" className="inp" />
                   </Field>
-                  <button
-                    onClick={handleResetPassword}
-                    className="w-full h-10 rounded-md bg-primary text-primary-foreground font-medium hover:opacity-90"
-                  >
-                    Reset Password
+                  <button onClick={handleResetPassword} disabled={loading} className="w-full h-10 rounded-md bg-primary text-primary-foreground font-medium hover:opacity-90 disabled:opacity-60">
+                    {loading ? "Resetting…" : "Reset Password"}
                   </button>
                 </div>
               </>
@@ -661,15 +423,7 @@ function AuthPage() {
   );
 }
 
-function Field({
-  label,
-  error,
-  children,
-}: {
-  label: string;
-  error?: string;
-  children: React.ReactNode;
-}) {
+function Field({ label, error, children }: { label: string; error?: string; children: React.ReactNode }) {
   return (
     <div>
       <label className="block text-sm font-medium mb-1.5">{label}</label>
@@ -679,31 +433,11 @@ function Field({
   );
 }
 
-function PwInput({
-  value,
-  onChange,
-  show,
-  onToggle,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  show: boolean;
-  onToggle: () => void;
-}) {
+function PwInput({ value, onChange, show, onToggle, onEnter }: { value: string; onChange: (v: string) => void; show: boolean; onToggle: () => void; onEnter?: () => void }) {
   return (
     <div className="relative">
-      <input
-        type={show ? "text" : "password"}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder="••••••••"
-        className="inp pr-10"
-      />
-      <button
-        type="button"
-        onClick={onToggle}
-        className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-muted-foreground hover:text-foreground"
-      >
+      <input type={show ? "text" : "password"} value={value} onChange={(e) => onChange(e.target.value)} placeholder="••••••••" className="inp pr-10" onKeyDown={(e) => e.key === "Enter" && onEnter?.()} />
+      <button type="button" onClick={onToggle} className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-muted-foreground hover:text-foreground">
         {show ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
       </button>
     </div>

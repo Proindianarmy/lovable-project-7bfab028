@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { AppShell } from "@/components/AppShell";
 import { requireAuth } from "@/lib/auth-guard";
 import { useReports, useAuth, levelFor } from "@/lib/store";
+import { useApiLeaderboard } from "@/lib/useApi";
 import { Trophy, Medal } from "lucide-react";
 import { useMemo } from "react";
 import { useT } from "@/lib/i18n";
@@ -42,53 +43,39 @@ function Avatar({ src, name }: { src?: string; name: string }) {
 function Leaderboard() {
   const { reports } = useReports();
   const { user } = useAuth();
+  const { leaderboard: apiBoard, loading: apiLoading } = useApiLeaderboard();
 
+  // Use API leaderboard if available; otherwise build from local store (offline fallback)
   const board = useMemo(() => {
-    const map = new Map<
-      string,
-      {
-        name: string;
-        avatar?: string;
-        reports: number;
-        upvotes: number;
-        points: number;
-      }
-    >();
-
-    reports.forEach((r) => {
-      const cur = map.get(r.reporterId) ?? {
-        name: r.reporterName,
-        avatar: r.reporterAvatar,
-        reports: 0,
+    if (apiBoard && apiBoard.length > 0) {
+      return apiBoard.map((u, i) => ({
+        id: u._id || (u as {id?: string}).id || String(i),
+        name: u.name,
+        avatar: u.avatar,
+        reports: u.reportCount || 0,
         upvotes: 0,
-        points: 0,
-      };
+        points: u.points || 0,
+        rank: i + 1,
+      }));
+    }
+    // Fallback: derive from local store reports
+    const map = new Map<string, { name: string; avatar?: string; reports: number; upvotes: number; points: number }>();
+    reports.forEach((r) => {
+      const cur = map.get(r.reporterId) ?? { name: r.reporterName, avatar: r.reporterAvatar, reports: 0, upvotes: 0, points: 0 };
       cur.reports += 1;
       cur.upvotes += r.upvotes.length;
       cur.points += 10 + r.upvotes.length * 2 + (r.status === "Resolved" ? 50 : 0);
       map.set(r.reporterId, cur);
     });
-
-    // Merge current user's live data
     if (user) {
-      const cur = map.get(user.id) ?? {
-        name: user.name,
-        avatar: user.avatar,
-        reports: 0,
-        upvotes: 0,
-        points: 0,
-      };
+      const cur = map.get(user.id) ?? { name: user.name, avatar: user.avatar, reports: 0, upvotes: 0, points: 0 };
       cur.points = Math.max(cur.points, user.points);
-      cur.avatar = user.avatar; // always use latest avatar
+      cur.avatar = user.avatar;
       cur.name = user.name;
       map.set(user.id, cur);
     }
-
-    return Array.from(map.entries())
-      .map(([id, v]) => ({ id, ...v }))
-      .sort((a, b) => b.points - a.points)
-      .slice(0, 20);
-  }, [reports, user]);
+    return Array.from(map.entries()).map(([id, v]) => ({ id, ...v })).sort((a, b) => b.points - a.points).slice(0, 20);
+  }, [apiBoard, reports, user]);
 
   return (
     <AppShell title="Leaderboard">

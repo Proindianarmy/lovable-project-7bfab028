@@ -69,7 +69,7 @@ function LangSwitcher() {
         <span className="hidden sm:inline">{LANGUAGES.find((l) => l.code === lang)?.nativeLabel}</span>
       </button>
       {open && (
-        <div className="absolute right-0 mt-2 w-36 rounded-xl border border-border bg-popover shadow-lg z-50 overflow-hidden">
+        <div className="absolute right-0 mt-2 w-36 rounded-xl border border-border bg-popover shadow-lg z-[1100] overflow-hidden">
           {LANGUAGES.map((l) => (
             <button
               key={l.code}
@@ -113,7 +113,7 @@ function NotifBell() {
         )}
       </button>
       {open && (
-        <div className="absolute right-0 mt-2 w-80 max-h-[28rem] overflow-auto rounded-xl border border-border bg-popover text-popover-foreground shadow-lg z-50">
+        <div className="absolute right-0 mt-2 w-80 max-h-[28rem] overflow-auto rounded-xl border border-border bg-popover text-popover-foreground shadow-lg z-[1100]">
           <div className="flex items-center justify-between px-4 py-3 border-b border-border">
             <span className="font-semibold text-sm">{t("notifications")}</span>
             <div className="flex items-center gap-2">
@@ -198,7 +198,7 @@ function UserMenu() {
           <span className="text-sm font-medium hidden sm:block text-foreground">{display}</span>
         </button>
         {open && (
-          <div className="absolute right-0 mt-2 w-56 rounded-xl border border-border bg-popover text-popover-foreground shadow-lg z-50">
+          <div className="absolute right-0 mt-2 w-56 rounded-xl border border-border bg-popover text-popover-foreground shadow-lg z-[1100]">
             <div className="flex items-center justify-between px-4 py-3 border-b border-border">
               <div className="min-w-0">
                 <p className="font-semibold text-sm truncate">{display}</p>
@@ -314,7 +314,7 @@ export function AppShell({ children, title }: { children: ReactNode; title?: str
       </aside>
 
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="h-16 bg-card border-b border-border flex items-center gap-4 px-6">
+        <header className="relative z-40 h-16 bg-card border-b border-border flex items-center gap-4 px-6">
           <div className="flex-1" />
           <div className="ml-auto flex items-center gap-2">
             <LangSwitcher />

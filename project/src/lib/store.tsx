@@ -656,47 +656,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
-    ensureAdminAccount();
-    const profiles = getProfiles();
-    ensureAdminProfile(profiles);
-    saveProfiles(profiles);
-
+    const token = localStorage.getItem("token");
     const logged = localStorage.getItem("isLoggedIn") === "true";
-    const email = localStorage.getItem("userEmail");
-    if (logged && email) {
-      let p = profiles[email];
-      if (!p) {
-        const name = localStorage.getItem("userName") || email.split("@")[0];
-        p = {
-          id: email,
-          email,
-          name,
-          avatar: AVATAR_OPTIONS[0],
-          bio: "",
-          city: "",
-          points: 0,
-          role: email === ADMIN_EMAIL ? "admin" : "user",
-          notifyEmail: true,
-          notifyPush: true,
-        };
-        profiles[email] = p;
-        saveProfiles(profiles);
-      }
-      if (email === ADMIN_EMAIL) p.role = "admin";
-
-      // Daily login bonus
-      const today = new Date().toDateString();
-      const last = p.lastDailyBonus ? new Date(p.lastDailyBonus).toDateString() : null;
-      if (last !== today) {
-        p.points += 5;
-        p.lastDailyBonus = Date.now();
-        profiles[email] = p;
-        saveProfiles(profiles);
-        setTimeout(() => toast.success("+5 points — Daily login bonus!"), 800);
-      }
-      setUser(p);
+    if (!token || !logged) {
+      setHydrated(true);
+      return;
     }
-    setHydrated(true);
+    // Fetch fresh user from backend
+    fetch(`${(import.meta.env.VITE_API_URL as string | undefined) ?? "/api"}/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.success && data.data?.user) {
+          const u = data.data.user;
+          setUser({
+            id: u._id,
+            email: u.email,
+            name: u.name,
+            avatar: u.avatar || "🦊",
+            bio: u.bio || "",
+            city: u.city || "",
+            points: u.points || 0,
+            role: u.role || "user",
+            notifyEmail: u.notifyEmail ?? true,
+            notifyPush: u.notifyPush ?? true,
+          });
+        } else {
+          // Token invalid — clear auth
+          localStorage.removeItem("token");
+          localStorage.removeItem("isLoggedIn");
+          localStorage.removeItem("userEmail");
+        }
+      })
+      .catch(() => {})
+      .finally(() => setHydrated(true));
   }, []);
 
   const persist = useCallback((next: UserProfile) => {
@@ -744,44 +738,54 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const logout = useCallback(() => {
+    localStorage.removeItem("token");
     localStorage.removeItem("isLoggedIn");
     localStorage.removeItem("userEmail");
     localStorage.removeItem("userName");
     setUser(null);
   }, []);
 
-  // Called from auth page right after writing localStorage — hydrates user state immediately
+  // Called from auth page right after login — re-fetches user from backend
   const loginUser = useCallback((email: string) => {
-    const profiles = getProfiles();
-    ensureAdminProfile(profiles);
-    let p = profiles[email];
-    if (!p) {
-      const name = localStorage.getItem("userName") || email.split("@")[0];
-      p = {
-        id: email,
-        email,
-        name,
-        avatar: AVATAR_OPTIONS[0],
-        bio: "",
-        city: "",
-        points: 0,
-        role: email === ADMIN_EMAIL ? "admin" : "user",
-        notifyEmail: true,
-        notifyPush: true,
-      };
-    }
-    if (email === ADMIN_EMAIL) p.role = "admin";
-    // Daily login bonus
-    const today = new Date().toDateString();
-    const last = p.lastDailyBonus ? new Date(p.lastDailyBonus).toDateString() : null;
-    if (last !== today) {
-      p.points += 5;
-      p.lastDailyBonus = Date.now();
-      setTimeout(() => toast.success("+5 points — Daily login bonus!"), 800);
-    }
-    profiles[email] = p;
-    saveProfiles(profiles);
-    setUser(p);
+    const token = localStorage.getItem("token");
+    if (!token) return;
+    fetch(`${(import.meta.env.VITE_API_URL as string | undefined) ?? "/api"}/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.success && data.data?.user) {
+          const u = data.data.user;
+          setUser({
+            id: u._id,
+            email: u.email,
+            name: u.name,
+            avatar: u.avatar || "🦊",
+            bio: u.bio || "",
+            city: u.city || "",
+            points: u.points || 0,
+            role: u.role || "user",
+            notifyEmail: u.notifyEmail ?? true,
+            notifyPush: u.notifyPush ?? true,
+          });
+        }
+      })
+      .catch(() => {
+        // Fallback: build from localStorage if API fails
+        const name = localStorage.getItem("userName") || email.split("@")[0];
+        setUser({
+          id: email,
+          email,
+          name,
+          avatar: AVATAR_OPTIONS[0],
+          bio: "",
+          city: "",
+          points: 0,
+          role: "user",
+          notifyEmail: true,
+          notifyPush: true,
+        });
+      });
   }, []);
 
   return (

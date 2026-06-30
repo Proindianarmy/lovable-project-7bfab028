@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { AppShell } from "@/components/AppShell";
 import { requireAuth } from "@/lib/auth-guard";
 import { useNotifications, timeAgo } from "@/lib/store";
+import { useApiNotifications } from "@/lib/useApi";
 import { Bell, CheckCheck, X } from "lucide-react";
 import { useState } from "react";
 import { useT } from "@/lib/i18n";
@@ -13,11 +14,26 @@ export const Route = createFileRoute("/notifications")({
 });
 
 function NotificationsPage() {
-  const { notifications, markRead, markAllRead, unread } = useNotifications();
+  const { notifications: storeNotifs, markRead: storeMarkRead, markAllRead: storeMarkAll, unread: storeUnread } = useNotifications();
+  const { notifications: apiNotifs, unread: apiUnread, markRead: apiMarkRead, markAllRead: apiMarkAll } = useApiNotifications();
   const t = useT();
-  // Track dismissed notification ids so user can X them away
-  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
 
+  // Prefer API data
+  const notifications = apiNotifs.length > 0
+    ? apiNotifs.map(n => ({ ...n, id: n._id, time: new Date(n.createdAt).getTime() }))
+    : storeNotifs;
+  const unread = apiNotifs.length > 0 ? apiUnread : storeUnread;
+
+  const markRead = (id: string) => {
+    storeMarkRead(id);
+    apiMarkRead(id).catch(() => {});
+  };
+  const markAllRead = () => {
+    storeMarkAll();
+    apiMarkAll().catch(() => {});
+  };
+
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const visible = notifications.filter((n) => !dismissed.has(n.id));
 
   const dismiss = (id: string) => {

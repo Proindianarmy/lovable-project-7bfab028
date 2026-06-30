@@ -3,6 +3,7 @@ import { AppShell, StatusBadge } from "@/components/AppShell";
 import { Inbox, PlusCircle, Trophy } from "lucide-react";
 import { requireAuth } from "@/lib/auth-guard";
 import { useAuth, useReports, levelFor, timeAgo, computeRating } from "@/lib/store";
+import { useApiReports } from "@/lib/useApi";
 import { useT } from "@/lib/i18n";
 
 export const Route = createFileRoute("/dashboard")({
@@ -13,12 +14,28 @@ export const Route = createFileRoute("/dashboard")({
 
 function Dashboard() {
   const { user } = useAuth();
-  const { reports } = useReports();
+  const { reports: storeReports } = useReports();
+  const { reports: apiReports } = useApiReports();
   const t = useT();
   if (!user) return null;
 
-  const mine = reports.filter((r) => r.reporterId === user.id);
-  const recent = reports.slice(0, 6);
+  const uid = user.id || (user as {_id?: string})?._id || "";
+  // Prefer API reports
+  const allReports = apiReports.length > 0
+    ? apiReports.map(r => ({
+        ...r,
+        id: r._id,
+        reporterId: typeof r.reporter === "string" ? r.reporter : (r.reporter as {_id:string})?._id || "",
+        createdAt: new Date(r.createdAt).getTime(),
+        upvotes: r.upvotes || [],
+        downvotes: r.downvotes || [],
+        comments: r.comments || [],
+        spamFlags: r.spamFlags || [],
+      }))
+    : storeReports;
+
+  const mine = allReports.filter((r) => r.reporterId === uid);
+  const recent = allReports.slice(0, 6);
   const lvl = levelFor(user.points);
 
   return (

@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { AppShell, StatusBadge } from "@/components/AppShell";
 import { requireAuth } from "@/lib/auth-guard";
 import { useAuth, useReports, useNotifications, type IssueStatus, timeAgo } from "@/lib/store";
+import { useApiReports, apiUpdateStatus, apiSetRole } from "@/lib/useApi";
 import {
   Shield,
   ShieldCheck,
@@ -30,7 +31,12 @@ type Tab = "overview" | "pending" | "resolved" | "settings";
 function Authority() {
   const t = useT();
   const { user, setRole, addPoints } = useAuth();
-  const { reports, setStatus } = useReports();
+  const { reports: storeReports, setStatus } = useReports();
+  const { reports: apiReports, refetch } = useApiReports();
+  // Prefer API reports
+  const reports = apiReports.length > 0
+    ? apiReports.map(r => ({ ...r, id: r._id, reporterId: typeof r.reporter === "string" ? r.reporter : (r.reporter as {_id:string})?._id || "", createdAt: new Date(r.createdAt).getTime(), upvotes: r.upvotes || [], downvotes: r.downvotes || [], comments: r.comments || [], spamFlags: r.spamFlags || [] }))
+    : storeReports;
   const { push } = useNotifications();
   const [tab, setTab] = useState<Tab>("overview");
 
@@ -57,7 +63,14 @@ function Authority() {
       sessionStorage.setItem("authorityUnlocked", "1");
       setUnlocked(true);
       setError("");
-      if (user.role !== "authority" && user.role !== "admin") setRole("authority");
+      if (user.role !== "authority" && user.role !== "admin") {
+        setRole("authority");
+        // Also update via API if user has a MongoDB _id
+        const uid = (user as {_id?: string})?._id || user.id;
+        if (uid && uid.length === 24) {
+          apiSetRole(uid, "authority").catch(() => {});
+        }
+      }
       toast.success("Authority access granted!");
     } else {
       setError("Incorrect password. Please try again.");
@@ -119,6 +132,7 @@ function Authority() {
 
   const changeStatus = (id: string, status: IssueStatus) => {
     setStatus(id, status);
+    apiUpdateStatus(id, status).then(() => refetch()).catch(() => {});
     const report = reports.find((r) => r.id === id);
     if (status === "In Progress") {
       push({
@@ -206,6 +220,10 @@ function Authority() {
               <button
                 onClick={() => {
                   setRole("user");
+                  const uid = (user as {_id?: string})?._id || user.id;
+                  if (uid && uid.length === 24) {
+                    apiSetRole(uid, "user").catch(() => {});
+                  }
                   toast.success("Reverted to regular user");
                 }}
                 className="px-4 py-2 rounded-md border border-border text-sm"
