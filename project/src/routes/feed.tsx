@@ -334,8 +334,13 @@ function Feed() {
                         <MapPin className="w-3 h-3" /> {r.location || r.city || "—"}
                       </span>
                       <span>· {timeAgo(r.createdAt)}</span>
-                      <span>
-                        · {r.reporterAvatar ?? "👤"} {r.reporterName}
+                      <span className="flex items-center gap-1">
+                        {r.reporterAvatar && (r.reporterAvatar.startsWith("data:") || r.reporterAvatar.startsWith("http")) ? (
+                          <img src={r.reporterAvatar} alt="" className="w-4 h-4 rounded-full object-cover inline-block" />
+                        ) : (
+                          <span>{r.reporterAvatar ?? "👤"}</span>
+                        )}
+                        {r.reporterName}
                       </span>
                     </div>
                   </div>
