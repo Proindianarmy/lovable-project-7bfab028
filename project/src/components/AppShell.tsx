@@ -16,6 +16,8 @@ import {
   Check,
   X,
   Globe,
+  Menu,
+  ArrowLeft,
 } from "lucide-react";
 import { useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { useAuth, useNotifications, useTheme, timeAgo } from "@/lib/store";
@@ -265,8 +267,10 @@ function UserMenu() {
 export function AppShell({ children, title }: { children: ReactNode; title?: string }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { user } = useAuth();
+  const navigate = useNavigate();
   const t = useT();
   const isAdmin = user?.role === "admin" || user?.role === "authority";
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const nav = [
     { to: "/dashboard", label: t("dashboard"), icon: LayoutDashboard },
@@ -282,8 +286,25 @@ export function AppShell({ children, title }: { children: ReactNode; title?: str
 
   const visibleNav = nav.filter((item) => !item.adminOnly || isAdmin);
 
+  // Close the mobile drawer whenever the route changes so navigation feels natural.
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [pathname]);
+
+  // Show a back button on every page except the top-level landing / dashboard.
+  const showBack = pathname !== "/" && pathname !== "/dashboard";
+  const handleBack = () => {
+    // Prefer real browser history so users always land where they came from.
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      window.history.back();
+    } else {
+      navigate({ to: "/dashboard" });
+    }
+  };
+
   return (
     <div className="flex min-h-screen bg-muted/30">
+      {/* Desktop sidebar */}
       <aside className="hidden md:flex w-64 flex-col bg-sidebar text-sidebar-foreground">
         <Link to="/" className="flex items-center gap-2 px-6 py-5 text-xl font-bold tracking-tight">
           <div className="w-10 h-10 overflow-hidden rounded-xl">
@@ -313,10 +334,89 @@ export function AppShell({ children, title }: { children: ReactNode; title?: str
         </nav>
       </aside>
 
+      {/* Mobile slide-in drawer + backdrop */}
+      {mobileNavOpen && (
+        <div
+          className="fixed inset-0 z-[1200] md:hidden bg-black/50"
+          onClick={() => setMobileNavOpen(false)}
+          aria-hidden="true"
+          data-testid="mobile-nav-backdrop"
+        />
+      )}
+      <aside
+        className={`fixed inset-y-0 left-0 z-[1210] w-72 max-w-[85vw] bg-sidebar text-sidebar-foreground flex flex-col md:hidden transform transition-transform duration-200 ease-out ${
+          mobileNavOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
+        data-testid="mobile-nav-drawer"
+        aria-hidden={!mobileNavOpen}
+      >
+        <div className="flex items-center justify-between px-4 py-4">
+          <Link
+            to="/"
+            onClick={() => setMobileNavOpen(false)}
+            className="flex items-center gap-2 text-lg font-bold tracking-tight"
+          >
+            <div className="w-9 h-9 overflow-hidden rounded-xl">
+              <img src="/logo.png" alt="IssueSnap Logo" className="w-full h-full object-contain" />
+            </div>
+            IssueSnap
+          </Link>
+          <button
+            onClick={() => setMobileNavOpen(false)}
+            className="w-9 h-9 grid place-items-center rounded-full hover:bg-sidebar-accent text-sidebar-foreground"
+            aria-label="Close menu"
+            data-testid="mobile-nav-close-btn"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <nav className="flex-1 px-3 py-2 space-y-1 overflow-y-auto">
+          {visibleNav.map((item) => {
+            const active = pathname === item.to;
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.to}
+                to={item.to}
+                onClick={() => setMobileNavOpen(false)}
+                className={`flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-colors ${
+                  active
+                    ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                    : "text-sidebar-foreground/85 hover:bg-sidebar-accent"
+                }`}
+              >
+                <Icon className="w-5 h-5" />
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
+      </aside>
+
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="relative z-40 h-16 bg-card border-b border-border flex items-center gap-4 px-6">
+        <header className="relative z-40 h-16 bg-card border-b border-border flex items-center gap-2 px-3 md:px-6">
+          {/* Mobile-only: burger + back */}
+          <button
+            onClick={() => setMobileNavOpen(true)}
+            className="md:hidden w-10 h-10 grid place-items-center rounded-full hover:bg-muted text-foreground"
+            aria-label="Open menu"
+            data-testid="mobile-nav-open-btn"
+          >
+            <Menu className="w-6 h-6" />
+          </button>
+          {showBack && (
+            <button
+              onClick={handleBack}
+              className="md:hidden w-10 h-10 grid place-items-center rounded-full hover:bg-muted text-foreground"
+              aria-label="Go back"
+              data-testid="mobile-back-btn"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+          )}
+
           <div className="flex-1" />
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-1 sm:gap-2">
             <LangSwitcher />
             <ThemeToggle />
             <NotifBell />
@@ -324,7 +424,7 @@ export function AppShell({ children, title }: { children: ReactNode; title?: str
           </div>
         </header>
 
-        <main className="flex-1 p-6 md:p-8">
+        <main className="flex-1 p-4 sm:p-6 md:p-8">
           {title && <h1 className="text-2xl font-bold mb-6">{title}</h1>}
           {children}
         </main>

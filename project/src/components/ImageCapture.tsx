@@ -203,6 +203,10 @@ export function ImageCapture({ disabled, onAccepted, helperText }: ImageCaptureP
   const [cameraOpen, setCameraOpen] = useState(false);
   const [stage, setStage] = useState<PipelineStage>("idle");
   const [cameraSupported, setCameraSupported] = useState(true);
+  // Live camera capture is intentionally limited to phones/tablets with a back
+  // camera — desktops and laptops should upload from gallery only (per product
+  // requirement: no webcam capture on PC).
+  const [isMobileOrTablet, setIsMobileOrTablet] = useState(false);
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const mobileCaptureInputRef = useRef<HTMLInputElement>(null);
 
@@ -216,6 +220,29 @@ export function ImageCapture({ disabled, onAccepted, helperText }: ImageCaptureP
       !!navigator.mediaDevices?.getUserMedia &&
       (window.isSecureContext ?? true);
     setCameraSupported(supported);
+
+    // Detect a phone/tablet (needs to have a touch screen AND either a coarse
+    // pointer or a mobile user-agent). This purposefully excludes desktop
+    // computers that happen to expose `mediaDevices` via a webcam.
+    if (typeof window !== "undefined") {
+      const ua = navigator.userAgent || "";
+      const uaMobile =
+        /Android|iPhone|iPad|iPod|Windows Phone|IEMobile|BlackBerry|Opera Mini|Mobile|Tablet/i.test(
+          ua,
+        );
+      const hasTouch =
+        (typeof navigator !== "undefined" && navigator.maxTouchPoints > 0) ||
+        "ontouchstart" in window;
+      const coarsePointer =
+        typeof window.matchMedia === "function" &&
+        window.matchMedia("(pointer: coarse)").matches;
+      // iPadOS 13+ reports as Mac in the UA but has touch — the touch+coarse
+      // combination catches it correctly. This intentionally rejects a laptop
+      // with a touchscreen + trackpad because those users still have a proper
+      // mouse and don't need live camera capture.
+      const mobileOrTablet = uaMobile || (hasTouch && coarsePointer);
+      setIsMobileOrTablet(mobileOrTablet);
+    }
   }, []);
 
   const busy = stage !== "idle";
@@ -310,36 +337,49 @@ export function ImageCapture({ disabled, onAccepted, helperText }: ImageCaptureP
 
   const handleTakeLivePhoto = () => {
     if (disabled || busy) return;
+    // Extra safety net — desktops should never even see this button, but if
+    // some browser reports a fake "mobile" UA we still block the code path.
+    if (!isMobileOrTablet) return;
+    // Prefer the native camera app on phones/tablets — the `capture="environment"`
+    // attribute forces the BACK camera (which is what we want for photographing
+    // a civic issue in the real world). This is more reliable than getUserMedia
+    // on iOS Safari and Android Chrome.
+    if (mobileCaptureInputRef.current) {
+      mobileCaptureInputRef.current.click();
+      return;
+    }
     if (cameraSupported) {
       setCameraOpen(true);
-    } else {
-      // Mobile fallback: the `capture` attribute opens the native camera
-      // directly on Android Chrome and iOS Safari without needing getUserMedia.
-      mobileCaptureInputRef.current?.click();
     }
   };
 
   return (
     <div className="space-y-2">
-      <div className="grid grid-cols-2 gap-2">
-        <button
-          type="button"
-          onClick={handleTakeLivePhoto}
-          disabled={disabled || busy}
-          className="flex flex-col items-center justify-center gap-1.5 rounded-lg border-2 border-dashed border-primary/40 bg-primary/5 py-4 hover:bg-primary/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          <Camera className="w-6 h-6 text-primary" />
-          <span className="text-xs font-medium">Take Live Photo</span>
-        </button>
+      <div className={`grid ${isMobileOrTablet ? "grid-cols-2" : "grid-cols-1"} gap-2`}>
+        {isMobileOrTablet && (
+          <button
+            type="button"
+            onClick={handleTakeLivePhoto}
+            disabled={disabled || busy}
+            data-testid="take-live-photo-btn"
+            className="flex flex-col items-center justify-center gap-1.5 rounded-lg border-2 border-dashed border-primary/40 bg-primary/5 py-4 hover:bg-primary/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Camera className="w-6 h-6 text-primary" />
+            <span className="text-xs font-medium">Take Live Photo</span>
+          </button>
+        )}
 
         <button
           type="button"
           onClick={() => !disabled && !busy && galleryInputRef.current?.click()}
           disabled={disabled || busy}
+          data-testid="upload-from-gallery-btn"
           className="flex flex-col items-center justify-center gap-1.5 rounded-lg border-2 border-dashed border-border bg-muted/30 py-4 hover:bg-muted/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <ImageIcon className="w-6 h-6 text-muted-foreground" />
-          <span className="text-xs font-medium">Upload from Gallery</span>
+          <span className="text-xs font-medium">
+            {isMobileOrTablet ? "Upload from Gallery" : "Upload Photo"}
+          </span>
         </button>
       </div>
 
@@ -363,7 +403,9 @@ export function ImageCapture({ disabled, onAccepted, helperText }: ImageCaptureP
           e.target.value = "";
         }}
       />
-      {/* Mobile-only camera fallback when getUserMedia isn't available */}
+      {/* Mobile-only camera fallback when getUserMedia isn't available.
+          On phones/tablets, tapping "Take Live Photo" uses this hidden input
+          so the OS opens the native camera app with the BACK camera. */}
       <input
         ref={mobileCaptureInputRef}
         type="file"
@@ -371,18 +413,24 @@ export function ImageCapture({ disabled, onAccepted, helperText }: ImageCaptureP
         capture="environment"
         className="hidden"
         onChange={(e) => {
-          if (!e.target.files?.length) {
-            // User backed out of the native camera UI — fall back to gallery
-            // so they're never stuck without a way to add a photo.
-            galleryInputRef.current?.click();
-          } else {
+          if (e.target.files?.length) {
             handleGalleryFiles(e.target.files);
           }
+          // If the user cancels the camera we simply do nothing — no forced
+          // fall-through to gallery (which was confusing on some phones).
           e.target.value = "";
         }}
       />
 
-      <LiveCameraModal open={cameraOpen} onClose={() => setCameraOpen(false)} onCapture={handleLiveCaptured} />
+      {/* Live camera modal is only ever used on mobile/tablet as a
+          fallback if the native input fails to open. Never shown on desktop. */}
+      {isMobileOrTablet && (
+        <LiveCameraModal
+          open={cameraOpen}
+          onClose={() => setCameraOpen(false)}
+          onCapture={handleLiveCaptured}
+        />
+      )}
     </div>
   );
 }

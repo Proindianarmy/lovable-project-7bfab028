@@ -206,7 +206,9 @@ async function detectViaSightengine(dataUrl: string): Promise<{ isAI: boolean; s
   const json = (await res.json()) as { status: string; type?: { ai_generated?: number } };
   if (json.status !== "success") throw new Error("api-err");
   const score = json.type?.ai_generated ?? 0;
-  return { isAI: score >= 0.55, score };
+  // Lowered threshold from 0.55 → 0.35 for stricter AI detection.
+  // Sightengine scores range 0–1; real photos rarely exceed 0.3.
+  return { isAI: score >= 0.35, score };
 }
 
 /* ── Canvas helpers ── */
@@ -390,26 +392,28 @@ function classifyCanvas(sig: CanvasSignals): { isAI: boolean; score: number; rea
      Total weight is normalised to 0–1. Reject if ≥ 0.52 (raised from 0.38 to reduce false positives) */
   const checks: Array<{ w: number; fire: boolean; label: string }> = [
     // Colour diversity — real photos have huge palettes
-    { w: 2.0, fire: sig.coarse4bit < 280, label: "low-coarse-colours" },
-    { w: 1.5, fire: sig.fine6bit < 700, label: "low-fine-colours" },
-    // Smoothness — AI art and drawings are too smooth (tightened thresholds)
-    { w: 2.5, fire: sig.flatRatio > 0.08, label: "too-flat" },
-    { w: 2.0, fire: sig.softRatio > 0.55, label: "too-smooth" },
-    { w: 1.5, fire: sig.softRatio > 0.45 && sig.avgNoise < 14, label: "smooth+low-noise" },
-    // Micro-texture — camera sensor always adds grain (lowered threshold)
-    { w: 3.0, fire: sig.lumVar32 < 60, label: "no-micro-texture" },
-    // Block uniformity — AI art has perfectly uniform fills (tightened)
-    { w: 3.5, fire: sig.lowVarBlockRatio > 0.55, label: "too-many-uniform-blocks" },
-    // High-freq energy — real photos have JPEG grain at 4×4 scale (lowered threshold)
-    { w: 2.5, fire: sig.hiFreqEnergy < 3, label: "no-hf-energy" },
-    // RGB balance — AI models output balanced palettes (tightened)
-    { w: 1.0, fire: sig.rgbBalance < 6 && sig.avgNoise < 18, label: "balanced-rgb" },
-    // Saturation — hand-drawn images have very low or very uniform saturation (tightened)
-    { w: 1.0, fire: sig.satVar < 0.025, label: "uniform-saturation" },
-    // Edge continuity — drawings have long straight edges (tightened)
-    { w: 1.5, fire: sig.edgeContinuity > 0.85 && sig.flatRatio > 0.07, label: "drawing-edges" },
-    // Hard outlines + flat fills = hand-drawn (tightened)
-    { w: 2.0, fire: sig.hardRatio > 0.15 && sig.flatRatio > 0.10, label: "cartoon-outline" },
+    { w: 2.0, fire: sig.coarse4bit < 380, label: "low-coarse-colours" },
+    { w: 1.5, fire: sig.fine6bit < 900, label: "low-fine-colours" },
+    // Smoothness — AI art and drawings are too smooth
+    { w: 2.5, fire: sig.flatRatio > 0.06, label: "too-flat" },
+    { w: 2.0, fire: sig.softRatio > 0.48, label: "too-smooth" },
+    { w: 2.0, fire: sig.softRatio > 0.38 && sig.avgNoise < 12, label: "smooth+low-noise" },
+    // Micro-texture — camera sensor always adds grain
+    { w: 3.5, fire: sig.lumVar32 < 80, label: "no-micro-texture" },
+    // Block uniformity — AI art has perfectly uniform fills
+    { w: 4.0, fire: sig.lowVarBlockRatio > 0.45, label: "too-many-uniform-blocks" },
+    // High-freq energy — real photos have JPEG grain at 4×4 scale
+    { w: 3.0, fire: sig.hiFreqEnergy < 4, label: "no-hf-energy" },
+    // RGB balance — AI models output suspiciously balanced palettes
+    { w: 1.5, fire: sig.rgbBalance < 8 && sig.avgNoise < 20, label: "balanced-rgb" },
+    // Saturation — hand-drawn / AI images have very uniform saturation
+    { w: 1.5, fire: sig.satVar < 0.035, label: "uniform-saturation" },
+    // Edge continuity — AI/drawings have long smooth edges
+    { w: 2.0, fire: sig.edgeContinuity > 0.78 && sig.flatRatio > 0.05, label: "drawing-edges" },
+    // Hard outlines + flat fills = hand-drawn / cartoon
+    { w: 2.0, fire: sig.hardRatio > 0.12 && sig.flatRatio > 0.08, label: "cartoon-outline" },
+    // Photorealistic AI: very high colour diversity but suspiciously low noise (uncanny valley)
+    { w: 2.5, fire: sig.coarse4bit > 600 && sig.avgNoise < 10 && sig.lumVar32 < 120, label: "photorealistic-ai" },
   ];
 
   const total = checks.reduce((s, c) => s + c.w, 0);
@@ -417,7 +421,8 @@ function classifyCanvas(sig: CanvasSignals): { isAI: boolean; score: number; rea
   const firedW = fired.reduce((s, c) => s + c.w, 0);
   const score = firedW / total;
   const reason = fired.map((c) => c.label).join(", ") || "none";
-  return { isAI: score >= 0.52, score, reason }; // raised threshold: 0.38 → 0.52
+  // Lowered rejection threshold: 0.52 → 0.40 — stricter, rejects more borderline AI images
+  return { isAI: score >= 0.40, score, reason };
 }
 
 async function detectViaCanvas(dataUrl: string): Promise<{ isAI: boolean; score: number }> {

@@ -20,7 +20,11 @@ import { success, error } from "../utils/response.js";
  */
 
 const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
-const MODEL = "claude-sonnet-4-6";
+// NOTE: "claude-sonnet-4-6" was not a real model id and caused every request to
+// fail with a 404 from the Anthropic API (so no AI/image checks were actually
+// running server-side). We now use the real Claude Sonnet 4.5 vision model,
+// which is the latest generally-available Sonnet with strong image reasoning.
+const MODEL = "claude-sonnet-4-5-20250929";
 
 const SYSTEM_PROMPT = `You are an image moderation system for a civic-issue reporting app called IssueSnap.
 Analyze the photo and respond with ONLY a single JSON object (no markdown, no prose, no code fences) with this exact shape:
@@ -143,11 +147,26 @@ export const validateImage = async (req, res, next) => {
     const rejected = rejectionReasons.length > 0 || !parsed.isCivicIssue;
 
     if (rejected) {
+      // Give the user a specific reason when the photo was rejected — in particular
+      // we ALWAYS surface AI-generated rejections explicitly so users know why the
+      // photo was blocked.
+      let userMessage;
+      if (parsed.isAIGenerated) {
+        userMessage =
+          "This image looks AI-generated or synthetic and can't be used to report a real civic issue. " +
+          "Please upload a genuine photo taken from a camera.";
+      } else if (rejectionReasons.length > 0) {
+        userMessage = `This image ${rejectionReasons.join(", ")}. Please upload a real photo of the civic issue.`;
+      } else {
+        userMessage =
+          "This image does not appear to show a valid civic issue. Please upload a clear photo of the reported problem.";
+      }
+
       return success(res, {
         verified: true,
         valid: false,
-        message:
-          "This image does not appear to show a valid civic issue. Please upload a clear photo of the reported problem.",
+        aiGenerated: !!parsed.isAIGenerated,
+        message: userMessage,
         details: parsed,
       });
     }
