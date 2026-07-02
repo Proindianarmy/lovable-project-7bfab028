@@ -1,60 +1,83 @@
 import nodemailer from "nodemailer";
 
-// Treat email as "configured" only when credentials look real (not the
-// placeholder values shipped in .env.example). This lets the app run
-// out-of-the-box in dev mode (OTP logged to console) without crashing,
-// while still using real email once the user fills in valid credentials.
-function isEmailConfigured() {
-  if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
-    return true;
-  }
+// ─── Detection helpers ────────────────────────────────────────────────────────
+
+function isResendConfigured() {
+  const key = process.env.RESEND_API_KEY;
+  return !!(key && key.startsWith("re_") && key.length > 10);
+}
+
+function isGmailConfigured() {
   const user = process.env.GMAIL_USER;
   const pass = process.env.GMAIL_APP_PASS;
   if (!user || !pass) return false;
   if (user === "your.gmail@gmail.com" || pass === "xxxxxxxxxxxxxxxx") return false;
-  // A Gmail App Password is always 16 characters (no spaces). A regular
-  // account password will NOT work and causes the
-  // "535 Username and Password not accepted" error from Google.
   if (pass.replace(/\s/g, "").length !== 16) return false;
   return true;
 }
 
-const createTransporter = () => {
-  if (process.env.SMTP_HOST) {
+function isSmtpConfigured() {
+  return !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+}
+
+function isEmailConfigured() {
+  return isResendConfigured() || isGmailConfigured() || isSmtpConfigured();
+}
+
+export function logEmailMode() {
+  if (isResendConfigured()) {
+    console.log("📧 Email mode:   Resend API (HTTP) ✅");
+  } else if (isSmtpConfigured()) {
+    console.log("📧 Email mode:   SMTP configured ✅");
+  } else if (isGmailConfigured()) {
+    console.log("📧 Email mode:   credentials detected — run a test OTP to confirm Gmail/SMTP accepts them.");
+  } else {
+    console.log("📧 Email mode:   CONSOLE ONLY (no credentials configured)");
+  }
+}
+
+async function sendViaResend({ to, subject, html, text }) {
+  const from = process.env.EMAIL_FROM || "IssueSnap <onboarding@resend.dev>";
+
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${process.env.RESEND_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ from, to, subject, html, text }),
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(`Resend API error ${response.status}: ${err.message || JSON.stringify(err)}`);
+  }
+
+  return await response.json();
+}
+
+function createSmtpTransporter() {
+  if (isSmtpConfigured()) {
     return nodemailer.createTransport({
       host: process.env.SMTP_HOST,
       port: parseInt(process.env.SMTP_PORT || "587"),
       secure: process.env.SMTP_SECURE === "true",
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-      },
-      tls: {
-        rejectUnauthorized: false,
-      },
+      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+      tls: { rejectUnauthorized: false },
     });
   }
 
-  // Gmail via App Password — explicit SMTP settings to avoid TLS cert chain errors.
-  // IMPORTANT: GMAIL_APP_PASS must be a 16-character "App Password" generated at
-  // https://myaccount.google.com/apppasswords (requires 2-Step Verification to be
-  // enabled first). Your normal Gmail login password will ALWAYS fail with
-  // "535-5.7.8 Username and Password not accepted".
   return nodemailer.createTransport({
     host: "smtp.gmail.com",
     port: 465,
-    secure: true, // SSL
+    secure: true,
     auth: {
       user: process.env.GMAIL_USER,
       pass: (process.env.GMAIL_APP_PASS || "").replace(/\s/g, ""),
     },
-    tls: {
-      rejectUnauthorized: false,
-    },
+    tls: { rejectUnauthorized: false },
   });
-};
-
-const FROM = `"IssueSnap" <${process.env.EMAIL_FROM || process.env.GMAIL_USER || "noreply@issuesnap.com"}>`;
+}
 
 function otpEmailHtml(otp, purpose) {
   const isReset = purpose === "reset";
@@ -98,64 +121,49 @@ function otpEmailHtml(otp, purpose) {
 }
 
 export async function sendOtpEmail(toEmail, otp, purpose) {
-  // No real email credentials configured (placeholder values, missing, or an
-  // invalid-length Gmail password): fall back to console logging so the app
-  // is fully usable out-of-the-box without requiring email setup.
   if (!isEmailConfigured()) {
     console.info(`\n📧 [DEV] OTP for ${toEmail}: ${otp} (purpose: ${purpose})\n`);
-    if (process.env.GMAIL_USER || process.env.SMTP_HOST) {
-      console.warn(
-        "⚠️  Email credentials look incomplete/invalid (placeholder values or wrong-length " +
-        "Gmail App Password) — falling back to console OTP logging instead of crashing. " +
-        "See backend/.env.example for setup instructions.",
-      );
-    }
     return;
   }
 
-  const transporter = createTransporter();
-  const subject = purpose === "reset" ? "IssueSnap — Password Reset OTP" : "IssueSnap — Email Verification OTP";
+  const subject = purpose === "reset"
+    ? "IssueSnap — Password Reset OTP"
+    : "IssueSnap — Email Verification OTP";
+
+  const html = otpEmailHtml(otp, purpose);
+  const text = `Your IssueSnap OTP is: ${otp}. It expires in 10 minutes.`;
 
   try {
-    await transporter.sendMail({
-      from: FROM,
-      to: toEmail,
-      subject,
-      html: otpEmailHtml(otp, purpose),
-      text: `Your IssueSnap OTP is: ${otp}. It expires in 10 minutes.`,
-    });
+    if (isResendConfigured()) {
+      await sendViaResend({ to: toEmail, subject, html, text });
+    } else {
+      const transporter = createSmtpTransporter();
+      const FROM = `"IssueSnap" <${process.env.EMAIL_FROM || process.env.GMAIL_USER || "noreply@issuesnap.com"}>`;
+      await transporter.sendMail({ from: FROM, to: toEmail, subject, html, text });
+    }
     console.info(`✅ OTP email sent to ${toEmail} (purpose: ${purpose})`);
   } catch (err) {
     console.error(`❌ Failed to send OTP email to ${toEmail}:`, err.message);
-    if (err.responseCode === 535 || /Username and Password not accepted/i.test(err.message || "")) {
-      // Most common cause: GMAIL_APP_PASS is the regular account password
-      // instead of a 16-character App Password, or 2-Step Verification is
-      // not enabled on the Google account.
-      throw new Error(
-        "Gmail rejected the credentials (535). GMAIL_APP_PASS must be a 16-character " +
-        "App Password from https://myaccount.google.com/apppasswords (requires 2-Step " +
-        "Verification enabled) — your normal Gmail password will not work.",
-      );
-    }
-    // Re-throw so the controller can handle it gracefully
     throw new Error("Failed to send OTP email. Please check your email configuration.");
   }
 }
 
 export async function sendWelcomeEmail(toEmail, name) {
-  if (!isEmailConfigured()) {
-    return;
-  }
-  const transporter = createTransporter();
+  if (!isEmailConfigured()) return;
+
+  const subject = "Welcome to IssueSnap! 🎉";
+  const html = `<p>Hi ${name},</p><p>Welcome to IssueSnap! Start reporting civic issues in your community.</p>`;
+  const text = `Hi ${name}, Welcome to IssueSnap!`;
+
   try {
-    await transporter.sendMail({
-      from: FROM,
-      to: toEmail,
-      subject: "Welcome to IssueSnap! 🎉",
-      html: `<p>Hi ${name},</p><p>Welcome to IssueSnap! Start reporting civic issues in your community.</p>`,
-    });
+    if (isResendConfigured()) {
+      await sendViaResend({ to: toEmail, subject, html, text });
+    } else {
+      const transporter = createSmtpTransporter();
+      const FROM = `"IssueSnap" <${process.env.EMAIL_FROM || process.env.GMAIL_USER || "noreply@issuesnap.com"}>`;
+      await transporter.sendMail({ from: FROM, to: toEmail, subject, html, text });
+    }
   } catch (err) {
-    // Welcome email failure is non-critical — log but don't throw
     console.warn(`⚠️ Welcome email could not be sent to ${toEmail}:`, err.message);
   }
 }
